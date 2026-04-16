@@ -1,0 +1,22 @@
+services:
+  macos:
+    build: .
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - IMAGE_PATH=/image
+      - HOST_IFACE=eth0        # your host's physical network interface
+      - RAM=8
+      - SMP=4
+      - CORES=4
+    volumes:
+      - ./mac_hdd_ng.img:/image
+    network_mode: host
+
+  novnc:
+    image: geek1011/easy-novnc
+    restart: unless-stopped
+    command: --addr :6080 --host 127.0.0.1 --port 5900 --no-url-password
+    network_mode: host
+    depends_on:
+      - macos

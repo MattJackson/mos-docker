@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>DisplayVendorID</key>
+    <integer>5549</integer>
+    <key>DisplayProductID</key>
+    <integer>717</integer>
+    <key>DisplayProductName</key>
+    <string>QEMU Display</string>
+    <key>IODisplayEDID</key>
+    <data>AP///////wAGEAEAAQAAAAEeAQOANB146qWlVU+gJg1QVAAhCAABAQEBAQEBAQEBAQEBAQEBAjqAGHE4LUBYLEUACSUhAAAeAAAA/ABRRU1VIERpc3BsYXkgAAAA/QAySxhREQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJw=</data>
+</dict>
+</plist>

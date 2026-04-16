@@ -1,0 +1,8 @@
+BaseSystem.img
+BaseSystem.dmg
+BaseSystem.chunklist
+OpenCore.qcow2
+mac_hdd_ng.img
+*.img
+*.qcow2
+.env

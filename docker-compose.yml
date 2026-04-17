@@ -6,9 +6,10 @@ services:
     environment:
       - IMAGE_PATH=/image
       - HOST_IFACE=eth0        # your host's physical network interface
-      - RAM=8
-      - SMP=4
-      - CORES=4
+      - RAM=16                 # install: 24, running: 16
+      - SMP=16                 # install: 24, running: 8
+      - CORES=16               # install: 24, running: 8
+      - DISK_SIZE=256G
     volumes:
       - ./mac_hdd_ng.img:/image
     network_mode: host
@@ -16,7 +17,7 @@ services:
   novnc:
     image: geek1011/easy-novnc
     restart: unless-stopped
-    command: --addr :6080 --host 127.0.0.1 --port 5900 --no-url-password
+    command: --addr :6080 --host 127.0.0.1 --port 5901 --no-url-password
     network_mode: host
     depends_on:
       - macos

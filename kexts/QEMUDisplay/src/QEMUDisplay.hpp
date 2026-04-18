@@ -39,7 +39,11 @@ public:
     void stop(IOService *provider) override;
     void free() override;
 
+    // IOService power management
+    IOReturn setPowerState(unsigned long powerStateOrdinal, IOService *device) override;
+
     // IOFramebuffer — required
+    IOReturn enableController() override;
     IOReturn getAttribute(IOSelect attribute, uintptr_t *value) override;
     IOReturn getAttributeForConnection(IOIndex connectIndex, IOSelect attribute, uintptr_t *value) override;
     IODeviceMemory *getVRAMRange() override;
@@ -53,6 +57,8 @@ public:
     IOReturn setDisplayMode(IODisplayModeID mode, IOIndex depth) override;
     UInt64 getPixelFormatsForDisplayMode(IODisplayModeID mode, IOIndex depth) override;
     bool hasDDCConnect(IOIndex connectIndex) override;
+    IOReturn getDDCBlock(IOIndex connectIndex, UInt32 blockNumber, IOSelect blockType, IOOptionBits options, UInt8 *data, IOByteCount *length) override;
+    IOReturn setGammaTable(UInt32 channelCount, UInt32 dataCount, UInt32 dataWidth, void *data) override;
     IOReturn getTimingInfoForDisplayMode(IODisplayModeID mode, IOTimingInformation *info) override;
     IOItemCount getConnectionCount() override;
 

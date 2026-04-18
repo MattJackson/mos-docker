@@ -2,122 +2,106 @@
 //  kern_patcher.cpp
 //  QEMUDisplayPatcher
 //
-//  Step 1: PROVEN WORKING enableController hook.
-//  Adding one thing at a time from here.
+//  onPatcherLoad (consistent) + loadKinfo + routeMultiple on kext idx.
 //
 
 #include <Headers/kern_api.hpp>
 #include <Headers/kern_util.hpp>
 #include <Headers/kern_patcher.hpp>
 
-#include <IOKit/IOService.h>
 #include <IOKit/IOLib.h>
-#include <IOKit/pci/IOPCIDevice.h>
 
 #include "qdp_patcher.hpp"
 
+// iMac EDID
+static const unsigned char edid[128] = {
+    0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x06, 0x10, 0xc3, 0x9c, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x22, 0x01, 0x03, 0x80, 0x3c, 0x22, 0x78, 0x0a, 0xee, 0x91, 0xa3, 0x54, 0x4c, 0x99, 0x26,
+    0x0f, 0x50, 0x54, 0x21, 0x08, 0x00, 0xd1, 0xc0, 0x81, 0xc0, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x3a, 0x80, 0x18, 0x71, 0x38, 0x2d, 0x40, 0x58, 0x2c,
+    0x45, 0x00, 0x06, 0x44, 0x21, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0xfc, 0x00, 0x69, 0x4d, 0x61,
+    0x63, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x38,
+    0x4c, 0x1e, 0x51, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+    0x00, 0x4d, 0x4f, 0x53, 0x31, 0x35, 0x56, 0x4d, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x71,
+};
+
 // Originals
 static IOReturn (*orgEnableController)(void *) = nullptr;
-static IODeviceMemory * (*orgGetVRAMRange)(void *) = nullptr;
-static IODeviceMemory * (*orgGetApertureRange)(void *, int32_t) = nullptr;
-
-// Cached PCI device
-static IOPCIDevice *gPCIDevice = nullptr;
+static bool (*orgHasDDCConnect)(void *, int32_t) = nullptr;
+static IOReturn (*orgGetDDCBlock)(void *, int32_t, uint32_t, uint32_t, uint32_t, uint8_t *, uint64_t *) = nullptr;
+static IOReturn (*orgSetGammaTable)(void *, uint32_t, uint32_t, uint32_t, void *) = nullptr;
 
 static IOReturn patchedEnableController(void *that) {
-    IOLog("QDP: enableController ENTER\n");
-
-    // Grab PCI device before calling original
-    IOService *svc = (IOService *)that;
-    IOService *provider = svc->getProvider();
-    if (provider)
-        gPCIDevice = OSDynamicCast(IOPCIDevice, provider);
-    IOLog("QDP: pciDev=%p\n", gPCIDevice);
-
-    IOReturn ret = orgEnableController ? orgEnableController(that) : 0;
-    IOLog("QDP: original ret=%d\n", ret);
-
-    // Set VRAM from BAR1 size
-    if (gPCIDevice) {
-        IODeviceMemory *vram = gPCIDevice->getDeviceMemoryWithRegister(0x14);
-        if (vram) {
-            uint64_t sz = vram->getLength();
-            svc->setProperty("IOFBMemorySize", sz, 64);
-            IOLog("QDP: VRAM=%llu from BAR1\n", sz);
-        }
-
-        // SMC GPU power
-        uint8_t on = 1;
-        // Use inline asm for SMC port I/O
-        asm volatile("outb %0, %1" : : "a"((uint8_t)0x11), "Nd"((uint16_t)0x304));
-        IODelay(10000);
-    }
-
-    svc->setProperty("IOFB0Hz", true);
-    svc->setProperty("IOFBGammaCount", (uint64_t)256, 32);
-    svc->setProperty("IOFBGammaWidth", (uint64_t)8, 32);
-
-    IOLog("QDP: enableController DONE\n");
-    return ret;
+    IOLog("QDP: enableController\n");
+    return orgEnableController ? orgEnableController(that) : 0;
 }
 
-static IODeviceMemory *patchedGetVRAMRange(void *that) {
-    IOLog("QDP: getVRAMRange\n");
-    if (gPCIDevice) {
-        IODeviceMemory *vram = gPCIDevice->getDeviceMemoryWithRegister(0x14);
-        if (vram) {
-            IOLog("QDP: returning BAR1 %llu bytes\n", vram->getLength());
-            return vram;
-        }
-    }
-    return orgGetVRAMRange ? orgGetVRAMRange(that) : nullptr;
+static bool patchedHasDDCConnect(void *that, int32_t idx) {
+    return true;
 }
 
-static IODeviceMemory *patchedGetApertureRange(void *that, int32_t aperture) {
-    if (aperture != 0) // kIOFBSystemAperture = 0
-        return orgGetApertureRange ? orgGetApertureRange(that, aperture) : nullptr;
-
-    if (gPCIDevice) {
-        IODeviceMemory *vram = gPCIDevice->getDeviceMemoryWithRegister(0x14);
-        if (vram) {
-            // Return sub-range for 1920x1080x4
-            IOByteCount fbSize = 1920 * 1080 * 4;
-            return IODeviceMemory::withSubRange(vram, 0, fbSize);
-        }
-    }
-    return orgGetApertureRange ? orgGetApertureRange(that, aperture) : nullptr;
+static IOReturn patchedGetDDCBlock(void *that, int32_t ci, uint32_t bn,
+    uint32_t bt, uint32_t opts, uint8_t *data, uint64_t *length) {
+    if (bn != 1 || !data || !length)
+        return orgGetDDCBlock ? orgGetDDCBlock(that, ci, bn, bt, opts, data, length) : 0xE00002BC;
+    uint64_t len = (*length < 128) ? *length : 128;
+    memcpy(data, edid, (size_t)len);
+    *length = len;
+    return 0;
 }
 
-// Kext info
+static IOReturn patchedSetGammaTable(void *that, uint32_t cc, uint32_t dc, uint32_t dw, void *d) {
+    return 0;
+}
+
 static const char *kextPath[] {
     "/System/Library/Extensions/IONDRVSupport.kext/IONDRVSupport"
 };
 
-static KernelPatcher::KextInfo kextInfo {
-    "com.apple.iokit.IONDRVSupport",
-    kextPath, 1,
-    {true}, {},
-    KernelPatcher::KextInfo::Unloaded
-};
+static void onPatcherLoad(void *user, KernelPatcher &patcher) {
+    IOLog("QDP: onPatcherLoad\n");
 
-static void onKextLoad(void *user, KernelPatcher &patcher, size_t id, mach_vm_address_t slide, size_t size) {
-    IOLog("QDP: onKextLoad id=%lu\n", (unsigned long)id);
+    // Load IONDRVSupport kext info
+    size_t idx = patcher.loadKinfo(
+        "com.apple.iokit.IONDRVSupport",
+        kextPath, arrsize(kextPath),
+        false, false, true  // not kernel, not fsonly, fsfallback=true
+    );
 
+    IOLog("QDP: loadKinfo=%lu err=%d\n", (unsigned long)idx, patcher.getError());
+    patcher.clearError();
+
+    if (idx == 0 || idx == (size_t)-1) {
+        IOLog("QDP: kinfo load failed\n");
+        return;
+    }
+
+    // Update running info
+    patcher.updateRunningInfo(idx, 0, 0);
+    patcher.clearError();
+
+    // Route
     KernelPatcher::RouteRequest reqs[] = {
         {"__ZN17IONDRVFramebuffer16enableControllerEv",
          patchedEnableController, orgEnableController},
+        {"__ZN17IONDRVFramebuffer13hasDDCConnectEi",
+         patchedHasDDCConnect, orgHasDDCConnect},
+        {"__ZN17IONDRVFramebuffer11getDDCBlockEijjjPhPy",
+         patchedGetDDCBlock, orgGetDDCBlock},
+        {"__ZN17IONDRVFramebuffer13setGammaTableEjjjPv",
+         patchedSetGammaTable, orgSetGammaTable},
     };
-    patcher.routeMultiple(id, reqs, arrsize(reqs), slide, size);
 
-    if (patcher.getError() == KernelPatcher::Error::NoError)
-        IOLog("QDP: routed OK\n");
-    else {
-        IOLog("QDP: route err %d\n", patcher.getError());
-        patcher.clearError();
-    }
+    patcher.routeMultiple(idx, reqs, arrsize(reqs));
+    IOLog("QDP: routeMultiple err=%d\n", patcher.getError());
+    patcher.clearError();
+
+    // Check what actually got routed
+    IOLog("QDP: orgEnable=%p orgDDC=%p orgGamma=%p\n",
+          orgEnableController, orgHasDDCConnect, orgSetGammaTable);
 }
 
 void pluginStart() {
     IOLog("QDP: pluginStart\n");
-    lilu.onKextLoadForce(&kextInfo, 1, onKextLoad);
+    lilu.onPatcherLoadForce(onPatcherLoad);
 }

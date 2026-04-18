@@ -12,3 +12,5 @@ kexts/CPUFriend/Tools/CPUFriendDataProvider.kext
 kexts/deps/
 kexts/*/build/
 oc-check.bin
+HANDOFF.md
+boot-log-*.txt

@@ -63,5 +63,6 @@ exec qemu-system-x86_64 -m "${RAM:-4}000" \
     -device virtio-net-pci,netdev=net0,mac="${MAC}" \
     -display none \
     -vnc 127.0.0.1:1 \
-    -vga vmware \
+    -vga none \
+    -device vmware-svga,vgamem_mb=256 \
     ${EXTRA:-}

@@ -191,16 +191,9 @@ IOReturn QEMUDisplay::enableController() {
         setProperty(kIOFBMemorySizeKey, (uint64_t)vramMem->getLength(), 64);
     }
 
-    // IOFramebuffer power management: register 3 power states
-    static IOPMPowerState powerStates[] = {
-        {1, 0,                 0,           0,           0, 0, 0, 0, 0, 0, 0, 0},
-        {1, 0,                 IOPMPowerOn, IOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0},
-        {1, IOPMDeviceUsable,  IOPMPowerOn, IOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
-    };
-    PMinit();
-    registerPowerDriver(this, powerStates, 3);
-    changePowerStateTo(2);
-    LOG("power registered, requesting state 2");
+    // Don't register power management here — IOFramebuffer::start() already
+    // calls PMinit/registerPowerDriver. Double registration causes conflicts
+    // with the screen lock state machine.
 
     return kIOReturnSuccess;
 }
@@ -216,6 +209,7 @@ IOReturn QEMUDisplay::getAttribute(IOSelect attribute, uintptr_t *value) {
 IOReturn QEMUDisplay::getAttributeForConnection(IOIndex connectIndex, IOSelect attribute, uintptr_t *value) {
     switch (attribute) {
         case kConnectionEnable:
+        case kConnectionCheckEnable:
             *value = 1;
             return kIOReturnSuccess;
         case kConnectionFlags:
@@ -314,6 +308,23 @@ IOReturn QEMUDisplay::setDisplayMode(IODisplayModeID mode, IOIndex depth) {
 
 UInt64 QEMUDisplay::getPixelFormatsForDisplayMode(IODisplayModeID mode, IOIndex depth) {
     return 0;
+}
+
+IOReturn QEMUDisplay::registerForInterruptType(IOSelect interruptType, IOFBInterruptProc proc,
+    OSObject *target, void *ref, void **interruptRef) {
+    // Accept all interrupt registrations — IOFramebuffer needs VBL and connect interrupts
+    // We don't generate real interrupts but returning success lets IOFramebuffer proceed
+    LOG("registerForInterruptType %u", (unsigned)interruptType);
+    *interruptRef = (void *)(uintptr_t)(interruptType + 1);  // non-NULL = registered
+    return kIOReturnSuccess;
+}
+
+IOReturn QEMUDisplay::unregisterInterrupt(void *interruptRef) {
+    return kIOReturnSuccess;
+}
+
+IOReturn QEMUDisplay::setInterruptState(void *interruptRef, UInt32 state) {
+    return kIOReturnSuccess;
 }
 
 IOReturn QEMUDisplay::setGammaTable(UInt32 channelCount, UInt32 dataCount, UInt32 dataWidth, void *data) {

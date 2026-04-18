@@ -59,6 +59,9 @@ public:
     bool hasDDCConnect(IOIndex connectIndex) override;
     IOReturn getDDCBlock(IOIndex connectIndex, UInt32 blockNumber, IOSelect blockType, IOOptionBits options, UInt8 *data, IOByteCount *length) override;
     IOReturn setGammaTable(UInt32 channelCount, UInt32 dataCount, UInt32 dataWidth, void *data) override;
+    IOReturn registerForInterruptType(IOSelect interruptType, IOFBInterruptProc proc, OSObject *target, void *ref, void **interruptRef) override;
+    IOReturn unregisterInterrupt(void *interruptRef) override;
+    IOReturn setInterruptState(void *interruptRef, UInt32 state) override;
     IOReturn getTimingInfoForDisplayMode(IODisplayModeID mode, IOTimingInformation *info) override;
     IOItemCount getConnectionCount() override;
 

@@ -15,6 +15,20 @@ RUN curl -sL https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz | tar xJ -C /
     && sed -i 's/\[STR_PRODUCT_KEYBOARD\] = "QEMU USB Keyboard"/[STR_PRODUCT_KEYBOARD] = "Magic Keyboard"/g' hw/usb/dev-hid.c \
     && sed -i 's/\[STR_PRODUCT_TABLET\]   = "QEMU USB Tablet"/[STR_PRODUCT_TABLET]   = "Magic Trackpad"/g' hw/usb/dev-hid.c \
     && sed -i 's/\[STR_PRODUCT_MOUSE\]    = "QEMU USB Mouse"/[STR_PRODUCT_MOUSE]    = "Magic Mouse"/g' hw/usb/dev-hid.c \
+    && sed -i 's/#define SVGA_MAX_WIDTH                  2368/#define SVGA_MAX_WIDTH                  3840/g' hw/display/vmware_vga.c \
+    && sed -i 's/#define SVGA_MAX_HEIGHT                 1770/#define SVGA_MAX_HEIGHT                 2160/g' hw/display/vmware_vga.c \
+    && sed -i 's/caps = SVGA_CAP_NONE;/caps = SVGA_CAP_NONE | SVGA_CAP_EXTENDED_FIFO | SVGA_CAP_PITCHLOCK | SVGA_CAP_8BIT_EMULATION | SVGA_CAP_ALPHA_BLEND | SVGA_CAP_MULTIMON;/g' hw/display/vmware_vga.c \
+    && sed -i '/applesmc_add_key(s, "MSSD"/a\
+    /* OpenCore15: GPU power management keys (prevents AGPM crash) */\
+    applesmc_add_key(s, "HE2N", 1, "\\x01");\
+    /* Watchdog timer control (fixes SMCWDT errors) */\
+    applesmc_add_key(s, "WDTC", 1, "\\x00");\
+    /* GPU temperature (iMac20,1 dGPU temp sensor) */\
+    applesmc_add_key(s, "TGDD", 2, "\\x00\\x00");\
+    applesmc_add_key(s, "TG0P", 2, "\\x00\\x00");\
+    /* Number of fans (iMac has 1) */\
+    applesmc_add_key(s, "FNum", 1, "\\x01");\
+    applesmc_add_key(s, "F0Ac", 2, "\\x03\\x00");' hw/misc/applesmc.c \
     && ./configure \
         --target-list=x86_64-softmmu \
         --prefix=/usr \

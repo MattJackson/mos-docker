@@ -98,6 +98,19 @@ static uint64_t         (*orgGetPixelFormatsForDisplayMode)(void *, int32_t, int
 static IOReturn         (*orgGetTimingInfoForDisplayMode)(void *, int32_t, IOTimingInformation *) = nullptr;
 static uint32_t         (*orgGetConnectionCount)(void *) = nullptr;
 static IOReturn         (*orgSetupForCurrentConfig)(void *) = nullptr;
+/* Phase 2: the 5 methods QEMUDisplay implemented but QDP was missing.
+ * Without these, IONDRVFramebuffer's original NDRV-backed versions run
+ * and macOS may reject modes based on what NDRV reports. */
+typedef void (*QDPInterruptProc)(OSObject *target, void *ref);
+static IOReturn         (*orgGetAttribute)(void *, uint32_t, uintptr_t *) = nullptr;
+static IOReturn         (*orgGetAttributeForConnection)(void *, int32_t, uint32_t, uintptr_t *) = nullptr;
+static IOReturn         (*orgRegisterForInterruptType)(void *, uint32_t, QDPInterruptProc, OSObject *, void *, void **) = nullptr;
+static IOReturn         (*orgUnregisterInterrupt)(void *, void *) = nullptr;
+static IOReturn         (*orgSetInterruptState)(void *, void *, uint32_t) = nullptr;
+/* Phase 3: connectFlags queries per-mode visibility. IONDRVFramebuffer's
+ * default asks the NDRV driver, which doesn't know about our custom modes
+ * and returns 0 (= hidden). We return Valid|Safe for every advertised mode. */
+static IOReturn         (*orgConnectFlags)(void *, int32_t, int32_t, uint32_t *) = nullptr;
 
 // === Patched methods ==========================================================
 
@@ -131,6 +144,12 @@ enum QDPHook {
     QDP_getTimingInfoForDisplayMode,
     QDP_getConnectionCount,
     QDP_setupForCurrentConfig,
+    QDP_getAttribute,
+    QDP_getAttributeForConnection,
+    QDP_registerForInterruptType,
+    QDP_unregisterInterrupt,
+    QDP_setInterruptState,
+    QDP_connectFlags,
     QDP_HOOK_COUNT
 };
 static const char *gHookNames[QDP_HOOK_COUNT] = {
@@ -140,6 +159,9 @@ static const char *gHookNames[QDP_HOOK_COUNT] = {
     "getInformationForDisplayMode", "getPixelInformation",
     "getCurrentDisplayMode", "setDisplayMode", "getPixelFormatsForDisplayMode",
     "getTimingInfoForDisplayMode", "getConnectionCount", "setupForCurrentConfig",
+    "getAttribute", "getAttributeForConnection",
+    "registerForInterruptType", "unregisterInterrupt", "setInterruptState",
+    "connectFlags",
 };
 static uint32_t gHookCounters[QDP_HOOK_COUNT];
 
@@ -351,6 +373,96 @@ static uint32_t patchedGetConnectionCount(void *) {
     return 1;
 }
 
+/* Phase 2 additions — methods our standalone QEMUDisplay.kext overrode but
+ * QDP was leaving to IONDRVFramebuffer's NDRV-backed defaults. Mirrors the
+ * behavior of kexts/QEMUDisplay/src/QEMUDisplay.cpp verbatim — that kext
+ * worked, these functions are the diff between "working driver" and "hook
+ * façade with NDRV leaking through". */
+
+static IOReturn patchedGetAttribute(void *that, uint32_t attr, uintptr_t *value) {
+    QDP_COUNT(getAttribute);
+    QDP_FIRST_CALL("getAttribute", "attr=0x%x", attr);
+    if (attr == kIOHardwareCursorAttribute) {
+        if (value) *value = 0;
+        return kIOReturnSuccess;
+    }
+    /* Delegate unknown attributes to the original impl — IOFramebuffer has
+     * defaults (probe options, wait-cursor frames, etc.) that macOS expects
+     * to get success for. Returning kIOReturnUnsupported for everything
+     * broke EDID delivery (DisplayVendorID came back as 'unkn'). */
+    if (orgGetAttribute) return orgGetAttribute(that, attr, value);
+    return kIOReturnUnsupported;
+}
+
+static IOReturn patchedGetAttributeForConnection(void *that, int32_t ci, uint32_t attr, uintptr_t *value) {
+    QDP_COUNT(getAttributeForConnection);
+    QDP_FIRST_CALL("getAttributeForConnection", "ci=%d attr=0x%x", ci, attr);
+    switch (attr) {
+        case kConnectionEnable:
+        case kConnectionCheckEnable:
+            /* "Yes, this connection is live." Without this, macOS may treat
+             * the connection as unreliable and clamp modes to a safe fallback. */
+            if (value) *value = 1;
+            return kIOReturnSuccess;
+        case kConnectionFlags:
+            if (value) *value = 0;
+            return kIOReturnSuccess;
+        case kConnectionSupportsHLDDCSense:
+            /* We DO support high-level DDC (hasDDCConnect + getDDCBlock both
+             * implemented). Per IOFramebuffer.h:814, return success (no value)
+             * so macOS takes the EDID path instead of the Apple-sense path. */
+            return kIOReturnSuccess;
+        case kConnectionSupportsAppleSense:
+            return kIOReturnUnsupported;
+        default:
+            /* Delegate unknown to original — dozens of kConnection* attrs
+             * exist. Wholesale-rejecting broke EDID. */
+            if (orgGetAttributeForConnection)
+                return orgGetAttributeForConnection(that, ci, attr, value);
+            return kIOReturnUnsupported;
+    }
+}
+
+static IOReturn patchedRegisterForInterruptType(void *that, uint32_t type,
+                                                QDPInterruptProc proc, OSObject *target,
+                                                void *ref, void **interruptRef) {
+    QDP_COUNT(registerForInterruptType);
+    QDP_FIRST_CALL("registerForInterruptType", "type=0x%x", type);
+    /* Give each interrupt type a unique non-null handle. macOS stores this
+     * and passes it back to setInterruptState / unregisterInterrupt. */
+    if (interruptRef) *interruptRef = (void *)(uintptr_t)(type + 1);
+    return kIOReturnSuccess;
+}
+
+static IOReturn patchedUnregisterInterrupt(void *that, void *interruptRef) {
+    QDP_COUNT(unregisterInterrupt);
+    return kIOReturnSuccess;
+}
+
+static IOReturn patchedSetInterruptState(void *that, void *interruptRef, uint32_t state) {
+    QDP_COUNT(setInterruptState);
+    return kIOReturnSuccess;
+}
+
+static IOReturn patchedConnectFlags(void *that, int32_t ci, int32_t modeID, uint32_t *flags) {
+    QDP_COUNT(connectFlags);
+    QDP_FIRST_CALL("connectFlags", "ci=%d mode=%d", ci, modeID);
+    if (!flags) return 0xE00002BC;
+    /* Every mode we advertise is valid + safe; mark mode 1 as default. Modes
+     * not in our list: delegate to org (let IONDRVFramebuffer's NDRV path
+     * decide for standard VESA modes macOS might synthesize). */
+    for (int i = 0; i < numModes; i++) {
+        if ((int32_t)modes[i].id == modeID) {
+            *flags = kDisplayModeValidFlag | kDisplayModeSafeFlag;
+            if (i == 0) *flags |= kDisplayModeDefaultFlag;
+            return kIOReturnSuccess;
+        }
+    }
+    if (orgConnectFlags) return orgConnectFlags(that, ci, modeID, flags);
+    *flags = 0;
+    return kIOReturnSuccess;
+}
+
 static IOReturn patchedSetupForCurrentConfig(void *that) {
     QDP_COUNT(setupForCurrentConfig);
     if (!orgSetupForCurrentConfig) { IOLog("QDP: orgSetupForCurrentConfig NULL — skipping\n"); return 0; }
@@ -429,6 +541,14 @@ kern_return_t qdp_start(kmod_info_t *ki, void *d)
         PAIR("getTimingInfoForDisplayMode",   patchedGetTimingInfoForDisplayMode,   orgGetTimingInfoForDisplayMode),
         PAIR("getConnectionCount",            patchedGetConnectionCount,            orgGetConnectionCount),
         PAIR("setupForCurrentConfig",         patchedSetupForCurrentConfig,         orgSetupForCurrentConfig),
+        /* Phase 2 — matches QEMUDisplay.kext's override set exactly. */
+        PAIR("getAttribute",                  patchedGetAttribute,                  orgGetAttribute),
+        PAIR("getAttributeForConnection",     patchedGetAttributeForConnection,     orgGetAttributeForConnection),
+        PAIR("registerForInterruptType",      patchedRegisterForInterruptType,      orgRegisterForInterruptType),
+        PAIR("unregisterInterrupt",           patchedUnregisterInterrupt,           orgUnregisterInterrupt),
+        PAIR("setInterruptState",             patchedSetInterruptState,             orgSetInterruptState),
+        /* Phase 3 — per-mode visibility; IONDRVFramebuffer's default delegates to NDRV. */
+        PAIR("connectFlags",                  patchedConnectFlags,                  orgConnectFlags),
     };
     int n = sizeof(reqs) / sizeof(*reqs);
     #undef PAIR

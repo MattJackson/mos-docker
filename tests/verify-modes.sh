@@ -152,8 +152,30 @@ else
 fi
 
 # ---- 7. VRAM -------------------------------------------------------------
-VRAM=$(ssh $SSH_OPTS "$VM" "system_profiler SPDisplaysDataType 2>/dev/null | awk '/VRAM/{print \$3, \$4}'")
+SP_OUT=$(ssh $SSH_OPTS "$VM" "system_profiler SPDisplaysDataType 2>/dev/null")
+VRAM=$(echo "$SP_OUT" | awk '/VRAM/{print $3, $4}')
 pass "VRAM: $VRAM"
+
+# ---- 8. system_profiler shows a full iMac panel (not just "GPU") ----------
+# Before the full hook set, SPDisplaysDataType showed only the GPU line — no
+# display subtree. Now macOS reports the panel, HiDPI, depth, and serial.
+# Any one of these checks failing means the display-panel recognition path
+# has regressed.
+for needle in \
+    "iMac:" \
+    "Display Type: LCD" \
+    "UI Looks like:" \
+    "Main Display: Yes" \
+    "Online: Yes" \
+    "984D8CB20332A" ; do
+    if echo "$SP_OUT" | grep -qF "$needle"; then
+        pass "SPDisplays reports: $needle"
+    else
+        fail "SPDisplays MISSING: $needle"
+        echo "$SP_OUT"
+        exit 4
+    fi
+done
 
 echo
 echo "${GRN}=== all display checks passed ===${RST}"

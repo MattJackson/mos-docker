@@ -16,15 +16,30 @@
 #include <architecture/i386/pio.h>
 
 // === EDID =====================================================================
-static const uint8_t mos15_edid[128] = {
-    0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x06, 0x10, 0xc3, 0x9c, 0x00, 0x00, 0x00, 0x00,
-    0x01, 0x22, 0x01, 0x03, 0x80, 0x3c, 0x22, 0x78, 0x0a, 0xee, 0x91, 0xa3, 0x54, 0x4c, 0x99, 0x26,
-    0x0f, 0x50, 0x54, 0x21, 0x08, 0x00, 0xd1, 0xc0, 0x81, 0xc0, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x3a, 0x80, 0x18, 0x71, 0x38, 0x2d, 0x40, 0x58, 0x2c,
-    0x45, 0x00, 0x06, 0x44, 0x21, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0xfc, 0x00, 0x69, 0x4d, 0x61,
-    0x63, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x38,
-    0x4c, 0x1e, 0x51, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
-    0x00, 0x4d, 0x4f, 0x53, 0x31, 0x35, 0x56, 0x4d, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x71,
+// Real iMac20,1 (Retina 5K, 27", 2020) EDID — 2 blocks, 256 bytes total.
+// Manufacturer APP (Apple), product 0xae31, monitor name "iMac".
+// Source: /Users/mjackson/mos/imac20-1-hardware-reference.md §2.
+// The extension-flag byte (126) = 0x01 signals to macOS that block 2 exists,
+// so getDDCBlock is called with bn=2 for the CTA-861 extension.
+static const uint8_t imac20_edid_block0[128] = {
+    0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x06, 0x10, 0x31, 0xae, 0x20, 0x33, 0x6a, 0x63,
+    0x16, 0x1d, 0x01, 0x04, 0xb5, 0x3c, 0x22, 0x78, 0x20, 0x0e, 0x21, 0xae, 0x52, 0x41, 0xb2, 0x26,
+    0x0e, 0x50, 0x54, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x4d, 0xd0, 0x00, 0xa0, 0xf0, 0x70, 0x3e, 0x80, 0x30, 0x20,
+    0x35, 0x00, 0x55, 0x50, 0x21, 0x00, 0x00, 0x1a, 0x56, 0x5e, 0x00, 0xa0, 0xa0, 0xa0, 0x29, 0x50,
+    0x30, 0x20, 0x35, 0x00, 0x55, 0x50, 0x21, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0xfc, 0x00, 0x69,
+    0x4d, 0x61, 0x63, 0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x00, 0x00, 0xff,
+    0x00, 0x39, 0x38, 0x34, 0x44, 0x38, 0x43, 0x42, 0x32, 0x30, 0x33, 0x33, 0x32, 0x41, 0x01, 0xf1,
+};
+static const uint8_t imac20_edid_block1[128] = {
+    0x02, 0x03, 0x1f, 0x80, 0x70, 0xfa, 0x10, 0x00, 0x00, 0x12, 0x76, 0x31, 0xfc, 0x78, 0xfb, 0xff,
+    0x02, 0x10, 0x88, 0x62, 0xd3, 0x69, 0xfa, 0x10, 0x00, 0xfa, 0xf8, 0xf8, 0xfe, 0xff, 0xff, 0xcd,
+    0x91, 0x80, 0xa0, 0xc0, 0x08, 0x34, 0x70, 0x30, 0x20, 0x35, 0x00, 0x55, 0x50, 0x21, 0x00, 0x00,
+    0x1a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x44,
 };
 
 // === SMC port-I/O =============================================================
@@ -86,7 +101,58 @@ static IOReturn         (*orgSetupForCurrentConfig)(void *) = nullptr;
 
 // === Patched methods ==========================================================
 
+// First-call logger per hook — logs the FIRST invocation to avoid spamming.
+// If a hook never logs, the hook is dead code (macOS reaches that functionality
+// via a different path). Call count is captured separately via gHookCounters[].
+#define QDP_FIRST_CALL(name, fmt, ...) do { \
+    static uint32_t __cnt = 0; \
+    if (__sync_fetch_and_add(&__cnt, 1) == 0) IOLog("QDP: " name " called " fmt "\n", ##__VA_ARGS__); \
+} while (0)
+
+// Per-hook call counters — exposed via ioreg on the IOFramebuffer via
+// setProperty("QDPCallCounts", ...) in setupForCurrentConfig. Index order
+// matches gHookNames[]. Every hook increments its slot atomically.
+enum QDPHook {
+    QDP_enableController = 0,
+    QDP_hasDDCConnect,
+    QDP_getDDCBlock,
+    QDP_setGammaTable,
+    QDP_getVRAMRange,
+    QDP_setAttributeForConnection,
+    QDP_getApertureRange,
+    QDP_getPixelFormats,
+    QDP_getDisplayModeCount,
+    QDP_getDisplayModes,
+    QDP_getInformationForDisplayMode,
+    QDP_getPixelInformation,
+    QDP_getCurrentDisplayMode,
+    QDP_setDisplayMode,
+    QDP_getPixelFormatsForDisplayMode,
+    QDP_getTimingInfoForDisplayMode,
+    QDP_getConnectionCount,
+    QDP_setupForCurrentConfig,
+    QDP_HOOK_COUNT
+};
+static const char *gHookNames[QDP_HOOK_COUNT] = {
+    "enableController", "hasDDCConnect", "getDDCBlock", "setGammaTable",
+    "getVRAMRange", "setAttributeForConnection", "getApertureRange",
+    "getPixelFormats", "getDisplayModeCount", "getDisplayModes",
+    "getInformationForDisplayMode", "getPixelInformation",
+    "getCurrentDisplayMode", "setDisplayMode", "getPixelFormatsForDisplayMode",
+    "getTimingInfoForDisplayMode", "getConnectionCount", "setupForCurrentConfig",
+};
+static uint32_t gHookCounters[QDP_HOOK_COUNT];
+
+// Bitmap of which display-mode IDs have been queried. If this mask equals
+// (1<<numModes)-1 after boot, every mode we advertise was actually asked
+// about by CoreGraphics — proves our mode list is reaching userspace.
+static uint64_t gModesQueriedMask = 0;
+static IOService *gFramebuffer = nullptr;  // captured in enableController
+
+#define QDP_COUNT(hook) __sync_fetch_and_add(&gHookCounters[QDP_##hook], 1)
+
 static IOReturn patchedEnableController(void *that) {
+    QDP_COUNT(enableController);
     if (!orgEnableController) { IOLog("QDP: orgEnableController NULL — skipping\n"); return 0; }
     IOReturn r = orgEnableController(that);
 
@@ -97,6 +163,7 @@ static IOReturn patchedEnableController(void *that) {
     uint64_t vramBytes = 0;
     if (that) {
         IOService *fb = static_cast<IOService *>(that);
+        gFramebuffer = fb;  // remember for property dumps
         IOService *prov = fb->getProvider();
         IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, prov);
         if (pci) {
@@ -113,21 +180,35 @@ static IOReturn patchedEnableController(void *that) {
     return r;
 }
 
-static bool patchedHasDDCConnect(void *, int32_t) { return true; }
+static bool patchedHasDDCConnect(void *, int32_t) {
+    QDP_COUNT(hasDDCConnect);
+    QDP_FIRST_CALL("hasDDCConnect", "-> true");
+    return true;
+}
 
 static IOReturn patchedGetDDCBlock(void *that, int32_t ci, uint32_t bn,
                                    uint32_t bt, uint32_t opts,
                                    uint8_t *data, uint64_t *length) {
-    if (bn != 1 || !data || !length) return 0xE00002BC;
+    QDP_COUNT(getDDCBlock);
+    QDP_FIRST_CALL("getDDCBlock", "bn=%u bt=%u", bn, bt);
+    if (!data || !length) return 0xE00002BC;
+    const uint8_t *src;
+    if      (bn == 1) src = imac20_edid_block0;
+    else if (bn == 2) src = imac20_edid_block1;
+    else              return 0xE00002BC;  /* invalid block */
     uint64_t copyLen = (*length < 128) ? *length : 128;
-    memcpy(data, mos15_edid, (size_t)copyLen);
+    memcpy(data, src, (size_t)copyLen);
     *length = copyLen;
     return 0;
 }
 
-static IOReturn patchedSetGammaTable(void *, uint32_t, uint32_t, uint32_t, void *) { return 0; }
+static IOReturn patchedSetGammaTable(void *, uint32_t, uint32_t, uint32_t, void *) {
+    QDP_COUNT(setGammaTable);
+    return 0;
+}
 
 static IODeviceMemory *patchedGetVRAMRange(void *that) {
+    QDP_COUNT(getVRAMRange);
     if (!that || !orgGetVRAMRange) return orgGetVRAMRange ? orgGetVRAMRange(that) : nullptr;
     IOService *fb = static_cast<IOService *>(that);
     IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, fb->getProvider());
@@ -138,9 +219,13 @@ static IODeviceMemory *patchedGetVRAMRange(void *that) {
     return orgGetVRAMRange(that);
 }
 
-static IOReturn patchedSetAttributeForConnection(void *, int32_t, uint32_t, uintptr_t) { return 0; }
+static IOReturn patchedSetAttributeForConnection(void *, int32_t, uint32_t, uintptr_t) {
+    QDP_COUNT(setAttributeForConnection);
+    return 0;
+}
 
 static IODeviceMemory *patchedGetApertureRange(void *that, int32_t aperture) {
+    QDP_COUNT(getApertureRange);
     if (!orgGetApertureRange) return nullptr;
     if (!that || aperture != 0) return orgGetApertureRange(that, aperture);
     IOService *fb = static_cast<IOService *>(that);
@@ -157,27 +242,43 @@ static IODeviceMemory *patchedGetApertureRange(void *that, int32_t aperture) {
 }
 
 static const char *patchedGetPixelFormats(void *) {
+    QDP_COUNT(getPixelFormats);
     static const char fmts[] = IO32BitDirectPixels "\0";
     return fmts;
 }
 
-static uint32_t patchedGetDisplayModeCount(void *) { return numModes; }
+static uint32_t patchedGetDisplayModeCount(void *) {
+    QDP_COUNT(getDisplayModeCount);
+    QDP_FIRST_CALL("getDisplayModeCount", "-> %d", numModes);
+    return numModes;
+}
 
 static IOReturn patchedGetDisplayModes(void *, int32_t *allModes) {
+    QDP_COUNT(getDisplayModes);
+    QDP_FIRST_CALL("getDisplayModes", "(n=%d)", numModes);
     if (!allModes) return 0xE00002BC;
     for (int i = 0; i < numModes; i++) allModes[i] = (int32_t)modes[i].id;
     return 0;
 }
 
 static IOReturn patchedGetInformationForDisplayMode(void *, int32_t mode, IODisplayModeInformation *info) {
+    QDP_COUNT(getInformationForDisplayMode);
+    QDP_FIRST_CALL("getInformationForDisplayMode", "mode=%d", mode);
     if (!info) return 0xE00002BC;
     for (int i = 0; i < numModes; i++) {
         if ((int32_t)modes[i].id == mode) {
+            __sync_fetch_and_or(&gModesQueriedMask, (uint64_t)1 << i);
             bzero(info, sizeof(*info));
             info->maxDepthIndex = 0;
             info->nominalWidth  = modes[i].width;
             info->nominalHeight = modes[i].height;
             info->refreshRate   = modes[i].refreshRate;
+            /* flags=0 (bzero default) caused macOS to silently reject every
+             * mode beyond the first queried — it only called back for mode=1
+             * and dropped modes 2-8. Valid+Safe is the minimum; Default on
+             * mode 1 marks it as the preferred startup mode. */
+            info->flags = kDisplayModeValidFlag | kDisplayModeSafeFlag;
+            if (i == 0) info->flags |= kDisplayModeDefaultFlag;
             return 0;
         }
     }
@@ -185,6 +286,7 @@ static IOReturn patchedGetInformationForDisplayMode(void *, int32_t mode, IODisp
 }
 
 static IOReturn patchedGetPixelInformation(void *, int32_t mode, int32_t depth, int32_t, IOPixelInformation *info) {
+    QDP_COUNT(getPixelInformation);
     if (!info || depth != 0) return 0xE00002BC;
     for (int i = 0; i < numModes; i++) {
         if ((int32_t)modes[i].id == mode) {
@@ -204,12 +306,14 @@ static IOReturn patchedGetPixelInformation(void *, int32_t mode, int32_t depth, 
 }
 
 static IOReturn patchedGetCurrentDisplayMode(void *, int32_t *mode, int32_t *depth) {
+    QDP_COUNT(getCurrentDisplayMode);
     if (mode) *mode = 1;
     if (depth) *depth = 0;
     return 0;
 }
 
 static IOReturn patchedSetDisplayMode(void *, int32_t mode, int32_t) {
+    QDP_COUNT(setDisplayMode);
     for (int i = 0; i < numModes; i++) {
         if ((int32_t)modes[i].id == mode) {
             gCurrentWidth  = modes[i].width;
@@ -220,9 +324,13 @@ static IOReturn patchedSetDisplayMode(void *, int32_t mode, int32_t) {
     return 0xE00002C2;
 }
 
-static uint64_t patchedGetPixelFormatsForDisplayMode(void *, int32_t, int32_t) { return 0; }
+static uint64_t patchedGetPixelFormatsForDisplayMode(void *, int32_t, int32_t) {
+    QDP_COUNT(getPixelFormatsForDisplayMode);
+    return 0;
+}
 
 static IOReturn patchedGetTimingInfoForDisplayMode(void *, int32_t mode, IOTimingInformation *info) {
+    QDP_COUNT(getTimingInfoForDisplayMode);
     if (!info) return 0xE00002BC;
     bzero(info, sizeof(*info));
     for (int i = 0; i < numModes; i++) {
@@ -238,9 +346,13 @@ static IOReturn patchedGetTimingInfoForDisplayMode(void *, int32_t mode, IOTimin
     return 0xE00002C2;
 }
 
-static uint32_t patchedGetConnectionCount(void *) { return 1; }
+static uint32_t patchedGetConnectionCount(void *) {
+    QDP_COUNT(getConnectionCount);
+    return 1;
+}
 
 static IOReturn patchedSetupForCurrentConfig(void *that) {
+    QDP_COUNT(setupForCurrentConfig);
     if (!orgSetupForCurrentConfig) { IOLog("QDP: orgSetupForCurrentConfig NULL — skipping\n"); return 0; }
     IOReturn r = orgSetupForCurrentConfig(that);
     if (that) {
@@ -253,61 +365,73 @@ static IOReturn patchedSetupForCurrentConfig(void *that) {
             }
         }
     }
+
+    /* Opportunistic counter flush. setupForCurrentConfig gets called at least
+     * once during init and later on reconfig events. Each call, snapshot our
+     * counters into IOService properties so verify-modes.sh can read them. */
+    if (that) {
+        IOService *fb = static_cast<IOService *>(that);
+        OSArray *arr = OSArray::withCapacity(QDP_HOOK_COUNT);
+        if (arr) {
+            for (int i = 0; i < QDP_HOOK_COUNT; i++) {
+                char line[128];
+                snprintf(line, sizeof(line), "%s=%u",
+                         gHookNames[i], gHookCounters[i]);
+                OSString *s = OSString::withCString(line);
+                if (s) { arr->setObject(s); s->release(); }
+            }
+            fb->setProperty("QDPCallCounts", arr);
+            arr->release();
+        }
+        fb->setProperty("QDPModesQueriedMask",
+                        (unsigned long long)gModesQueriedMask, 64);
+    }
     return r;
 }
 
-// === Mangled-name helpers =====================================================
-// Many IOFramebuffer-derived methods aren't overridden by IONDRVFramebuffer.
-// In that case the vtable slot points at the IOFramebuffer base-class
-// implementation in IOGraphicsFamily, not at an IONDRVFramebuffer symbol.
-// We register TWO routes per method (derived + base) with the same
-// replacement — the one whose symbol exists resolves, the other is a no-op.
-static char gMangleBufs[80][128];
-static int  gMangleNext = 0;
-
-static const char *mangleClass(const char *cls, const char *method, const char *paramSig) {
-    if (gMangleNext >= 80) return "";
-    char *out = gMangleBufs[gMangleNext++];
-    snprintf(out, 128, "__ZN%d%s%d%sE%s",
-             (int)strlen(cls), cls, (int)strlen(method), method, paramSig);
-    return out;
-}
-static const char *mangleNDRV(const char *m, const char *s) { return mangleClass("IONDRVFramebuffer", m, s); }
-static const char *mangleFB(const char *m, const char *s)   { return mangleClass("IOFramebuffer", m, s); }
-
 // === Kext entry — register routes via mos15-patcher ===========================
+//
+// Two routes per method (derived IONDRVFramebuffer + base IOFramebuffer)
+// cover both overridden methods and those inherited unchanged. Whichever
+// symbol the patcher finds first in the kext's __LINKEDIT wins its vtable
+// slot; the other is a harmless no-op. MP_ROUTE_PAIR from mos15_patcher.h
+// takes care of both the dual-class registration and the prefix-based
+// symbol lookup, so we don't write Itanium paramSigs by hand anymore.
 
 extern "C"
 kern_return_t qdp_start(kmod_info_t *ki, void *d)
 {
     IOLog("QDP: starting (mos15-patcher edition)\n");
 
-    #define ROUTE(method, sig, replacement, org) \
-        { mangleNDRV(method, sig), (void *)(replacement), (void **)&(org) }, \
-        { mangleFB(method,   sig), (void *)(replacement), (void **)&(org) }
+    #define PAIR(method, replacement, org) \
+        MP_ROUTE_PAIR("IONDRVFramebuffer", "IOFramebuffer", (method), (replacement), (org))
 
     mp_route_request_t reqs[] = {
-        ROUTE("enableController",              "v",                             patchedEnableController,           orgEnableController),
-        ROUTE("hasDDCConnect",                 "i",                             patchedHasDDCConnect,              orgHasDDCConnect),
-        ROUTE("getDDCBlock",                   "ijjjPhPy",                      patchedGetDDCBlock,                orgGetDDCBlock),
-        ROUTE("setGammaTable",                 "jjjPv",                         patchedSetGammaTable,              orgSetGammaTable),
-        ROUTE("getVRAMRange",                  "v",                             patchedGetVRAMRange,               orgGetVRAMRange),
-        ROUTE("setAttributeForConnection",     "ijm",                           patchedSetAttributeForConnection,  orgSetAttributeForConnection),
-        ROUTE("getApertureRange",              "15IOPixelAperture",             patchedGetApertureRange,           orgGetApertureRange),
-        ROUTE("getPixelFormats",               "v",                             patchedGetPixelFormats,            orgGetPixelFormats),
-        ROUTE("getDisplayModeCount",           "v",                             patchedGetDisplayModeCount,        orgGetDisplayModeCount),
-        ROUTE("getDisplayModes",               "Pi",                            patchedGetDisplayModes,            orgGetDisplayModes),
-        ROUTE("getInformationForDisplayMode",  "iP24IODisplayModeInformation",  patchedGetInformationForDisplayMode, orgGetInformationForDisplayMode),
-        ROUTE("getPixelInformation",           "iiiP18IOPixelInformation",      patchedGetPixelInformation,        orgGetPixelInformation),
-        ROUTE("getCurrentDisplayMode",         "PiS0_",                         patchedGetCurrentDisplayMode,      orgGetCurrentDisplayMode),
-        ROUTE("setDisplayMode",                "ii",                            patchedSetDisplayMode,             orgSetDisplayMode),
-        ROUTE("getPixelFormatsForDisplayMode", "ii",                            patchedGetPixelFormatsForDisplayMode, orgGetPixelFormatsForDisplayMode),
-        ROUTE("getTimingInfoForDisplayMode",   "iP19IOTimingInformation",       patchedGetTimingInfoForDisplayMode, orgGetTimingInfoForDisplayMode),
-        ROUTE("getConnectionCount",            "v",                             patchedGetConnectionCount,         orgGetConnectionCount),
-        ROUTE("setupForCurrentConfig",         "v",                             patchedSetupForCurrentConfig,      orgSetupForCurrentConfig),
+        PAIR("enableController",              patchedEnableController,              orgEnableController),
+        PAIR("hasDDCConnect",                 patchedHasDDCConnect,                 orgHasDDCConnect),
+        PAIR("getDDCBlock",                   patchedGetDDCBlock,                   orgGetDDCBlock),
+        /* setGammaTable is overloaded (4-arg + 5-arg-with-bool in IONDRVFramebuffer.h),
+         * so prefix match is ambiguous. Disambiguate with the 4-arg sig. */
+        MP_ROUTE_PAIR_SIG("IONDRVFramebuffer", "IOFramebuffer",
+                          "setGammaTable", "jjjPv",
+                          patchedSetGammaTable, orgSetGammaTable),
+        PAIR("getVRAMRange",                  patchedGetVRAMRange,                  orgGetVRAMRange),
+        PAIR("setAttributeForConnection",     patchedSetAttributeForConnection,     orgSetAttributeForConnection),
+        PAIR("getApertureRange",              patchedGetApertureRange,              orgGetApertureRange),
+        PAIR("getPixelFormats",               patchedGetPixelFormats,               orgGetPixelFormats),
+        PAIR("getDisplayModeCount",           patchedGetDisplayModeCount,           orgGetDisplayModeCount),
+        PAIR("getDisplayModes",               patchedGetDisplayModes,               orgGetDisplayModes),
+        PAIR("getInformationForDisplayMode",  patchedGetInformationForDisplayMode,  orgGetInformationForDisplayMode),
+        PAIR("getPixelInformation",           patchedGetPixelInformation,           orgGetPixelInformation),
+        PAIR("getCurrentDisplayMode",         patchedGetCurrentDisplayMode,         orgGetCurrentDisplayMode),
+        PAIR("setDisplayMode",                patchedSetDisplayMode,                orgSetDisplayMode),
+        PAIR("getPixelFormatsForDisplayMode", patchedGetPixelFormatsForDisplayMode, orgGetPixelFormatsForDisplayMode),
+        PAIR("getTimingInfoForDisplayMode",   patchedGetTimingInfoForDisplayMode,   orgGetTimingInfoForDisplayMode),
+        PAIR("getConnectionCount",            patchedGetConnectionCount,            orgGetConnectionCount),
+        PAIR("setupForCurrentConfig",         patchedSetupForCurrentConfig,         orgSetupForCurrentConfig),
     };
     int n = sizeof(reqs) / sizeof(*reqs);
-    #undef ROUTE
+    #undef PAIR
 
     int rc = mp_route_on_publish("IONDRVFramebuffer",
                                   "com.apple.iokit.IONDRVSupport",

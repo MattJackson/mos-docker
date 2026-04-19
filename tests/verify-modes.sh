@@ -21,19 +21,25 @@ SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes"
 BIN_SRC="$(dirname "$0")/list-modes"
 
 # ---- Expected state (update when QDP's modes[] / EDID change) --------------
-EXPECTED_MODES=(
+# Modes we advertise AND expect macOS to surface in CoreGraphics.
+EXPECTED_MODES_VISIBLE=(
     "1920x1080"
     "2560x1440"
-    "5120x2880"
     "3840x2160"
     "3008x1692"
     "2048x1152"
     "1680x945"
     "1280x720"
 )
+# Modes we advertise that macOS currently filters out due to LAYERS BELOW US.
+# Each entry is "mode:reason". If one of these starts appearing, it's not a
+# regression — it's a sign that the upstream block lifted (e.g. QEMU patched).
+EXPECTED_MODES_UPSTREAM_BLOCKED=(
+    "5120x2880:QEMU vmware-svga device caps resolution ~3840x2160; 5K requires patching hw/display/vmware_vga.c"
+)
 EXPECTED_DISPLAY_VENDOR=1552      # 0x0610 — Apple PnP "APP"
 EXPECTED_DISPLAY_PRODUCT=44593    # 0xAE31 — iMac20,1 built-in Retina 5K
-EXPECTED_METHODS_TOTAL=18
+EXPECTED_METHODS_TOTAL=24
 # ----------------------------------------------------------------------------
 
 RED=$(printf '\033[0;31m')
@@ -112,8 +118,9 @@ else
     echo "CG-enumerated modes:"
     echo "$MODES" | sed 's/^/    /'
 
+    # Expected-visible modes MUST appear
     MISSING_FROM_CG=()
-    for m in "${EXPECTED_MODES[@]}"; do
+    for m in "${EXPECTED_MODES_VISIBLE[@]}"; do
         if echo "$MODES" | grep -qx "$m"; then
             pass "mode visible in CoreGraphics: $m"
         else
@@ -122,10 +129,25 @@ else
         fi
     done
     if [ ${#MISSING_FROM_CG[@]} -gt 0 ]; then
-        warn "modes we advertise but macOS filters out: ${MISSING_FROM_CG[*]}"
-        warn "likely causes: EDID pixel-clock cap, VMware SVGA overriding via NDRV path,"
-        warn "               or macOS rejecting getInformationForDisplayMode reply"
+        warn "regression — previously-visible modes are gone: ${MISSING_FROM_CG[*]}"
         exit 4
+    fi
+
+    # Upstream-blocked modes should STAY blocked. If one appears, it's not a
+    # failure — it's a signal the upstream (QEMU, macOS version) changed.
+    UNBLOCKED=()
+    for entry in "${EXPECTED_MODES_UPSTREAM_BLOCKED[@]}"; do
+        m="${entry%%:*}"
+        reason="${entry#*:}"
+        if echo "$MODES" | grep -qx "$m"; then
+            warn "mode newly visible (upstream block lifted): $m — re-check $reason"
+            UNBLOCKED+=("$m")
+        else
+            pass "mode stays upstream-blocked (as expected): $m"
+        fi
+    done
+    if [ ${#UNBLOCKED[@]} -gt 0 ]; then
+        warn "consider moving these from EXPECTED_MODES_UPSTREAM_BLOCKED to EXPECTED_MODES_VISIBLE"
     fi
 fi
 

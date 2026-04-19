@@ -72,23 +72,23 @@ If `QDP: starting` missing but mp:start ran: QDP.kext didn't load. Usually `OSBu
 
 ---
 
-## 4. Hook coverage — 18/18 methods patched, 0 gaps
+## 4. Hook coverage — 24/24 methods patched, 0 gaps
 
 ```bash
 ssh matthew@10.1.7.20 "ioreg -c IONDRVFramebuffer -l 2>/dev/null" | grep -E '"MP[A-Z]'
 ```
 
-**Expected (today, as of 2026-04-19):**
+**Expected (today, as of 2026-04-19 — post connectFlags fix):**
 ```
-"MPMethodsHooked"    = 18
+"MPMethodsHooked"    = 24
 "MPMethodsMissing"   = 0
 "MPMethodGaps"       = ()
-"MPMethodsTotal"     = 18
-"MPStatus"           = "Pf Pf Pf Pf Pf Pf PX PX PX PX PX PX PX Pf PX Pf Pf Pf "
-"MPRoutesPatched"    = 18
-"MPRoutesRedundant"  = 10
-"MPRoutesUnresolved" = 8
+"MPMethodsTotal"     = 24
+"MPStatus"           = "Pf Pf Pf Pf Pf Pf PX PX PX PX PX PX PX Pf PX Pf Pf Pf Pf Pf Pf Pf Pf Pu "
+"MPRoutesPatched"    = 24
 ```
+
+The 24 method pairs covered (first = IONDRVFramebuffer override, second = IOFramebuffer base): enableController, hasDDCConnect, getDDCBlock, setGammaTable, getVRAMRange, setAttributeForConnection, getApertureRange, getPixelFormats, getDisplayModeCount, getDisplayModes, getInformationForDisplayMode, getPixelInformation, getCurrentDisplayMode, setDisplayMode, getPixelFormatsForDisplayMode, getTimingInfoForDisplayMode, getConnectionCount, setupForCurrentConfig, **getAttribute, getAttributeForConnection, registerForInterruptType, unregisterInterrupt, setInterruptState, connectFlags**.
 
 **Status-char legend** (`MPStatus`, one pair per method, derived/base):
 | char | meaning |
@@ -172,11 +172,9 @@ Hooks that commonly don't fire (still not a failure — they're for post-init st
 ✓ mode visible in CoreGraphics: 1280x720
 ```
 
-**Known gap (as of 2026-04-19):** only `1920x1080` and `1280x720` survive. Other 6 filtered by macOS despite our `getDisplayModes` returning them.
+**State as of 2026-04-19 (post connectFlags fix): 7/8 visible.** The 5120×2880 mode is blocked upstream by QEMU's vmware-svga device model (max resolution is ~3840×2160) — not fixable in QDP. `tests/verify-modes.sh` tracks this as `EXPECTED_MODES_UPSTREAM_BLOCKED` and flags if the upstream block ever lifts.
 
-Root cause still being investigated. Hypothesis: `getInformationForDisplayMode` is only queried for mode 1, macOS discards the rest — suggests IONDRVFramebuffer reads the real mode list from the NDRV driver path (old classic Mac OS driver interface) that our IOFramebuffer vtable hooks bypass.
-
-When this is fixed, this section will go green in full.
+Root cause of the earlier filtering (fixed): IONDRVFramebuffer's default `connectFlags(ci, modeID, *flags)` delegates to the NDRV driver. NDRV didn't recognize our custom mode IDs and returned `0`/`NeverShow`, so macOS hid them. Patched to return `kDisplayModeValidFlag | kDisplayModeSafeFlag` for every advertised mode.
 
 ---
 

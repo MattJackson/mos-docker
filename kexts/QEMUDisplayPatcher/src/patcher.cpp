@@ -195,12 +195,12 @@ static IOReturn patchedEnableController(void *that) {
                 vramBytes = bar1->getLength();
                 fb->setProperty("IOFBMemorySize", vramBytes, 64);
             }
-            /* Identity props on the IOPCIDevice ONLY (not also on framebuffer
-             * — that caused system_profiler to report two GPUs). system_profiler
-             * reads these: `model` for the chipset name, `AAPL,slot-name` for
-             * the slot label. Without them VMware SVGA shows as "Unknown Unknown". */
+            /* Identity props on the IOPCIDevice. Duplicate-GPU bisect:
+             * dropping `device_type = "display"` was the likely trigger
+             * (it told SPPCI enumeration to list us as a display device,
+             * and we were already findable via class-code=0x030000). Keep
+             * model + slot-name + built-in which are cosmetic per-GPU info. */
             pci->setProperty("model", "VMware SVGA II");
-            pci->setProperty("device_type", "display");
             pci->setProperty("AAPL,slot-name", "Built-in");
             uint8_t one = 1;
             pci->setProperty("built-in", &one, sizeof(one));

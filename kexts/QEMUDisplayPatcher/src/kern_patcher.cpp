@@ -25,7 +25,19 @@
 
 #include "qdp_patcher.hpp"
 
-// === iMac EDID (128 bytes, name "iMac") ======================================
+// === EDID — 128 bytes ========================================================
+// Custom EDID describing a generic Apple display at 1920x1080 (matches our
+// actual framebuffer mode). PnP "APP" + product 0x9CC3, name "iMac" via the
+// FC display descriptor, serial "MOS15VM". macOS classifies it as "Color LCD"
+// (not "iMac") because the product ID isn't in macOS's display product DB,
+// but the EDID landing cleanly is what matters — it gets attached to
+// IONDRVFramebuffer as IODisplayEDID and creates the IODisplayConnect node.
+//
+// Earlier attempt to use the real iMac20,1 EDID (PnP APP, product 0xAE31)
+// failed: that EDID describes 5120x2880 5K timings, and macOS rejected it
+// against our actual 1920x1080 framebuffer — IODisplayConnect wasn't created
+// and the Displays: subtree disappeared from system_profiler. Display name
+// is cosmetic; functional EDID landing is the win.
 static const uint8_t mos15_edid[128] = {
     0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x06, 0x10, 0xc3, 0x9c, 0x00, 0x00, 0x00, 0x00,
     0x01, 0x22, 0x01, 0x03, 0x80, 0x3c, 0x22, 0x78, 0x0a, 0xee, 0x91, 0xa3, 0x54, 0x4c, 0x99, 0x26,

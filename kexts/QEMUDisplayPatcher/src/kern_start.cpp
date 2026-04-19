@@ -12,9 +12,15 @@
 
 #include "qdp_patcher.hpp"
 
-static const char *bootargOff[] { "-qdpoff" };
-static const char *bootargDbg[] { "-qdpdbg" };
-static const char *bootargBeta[] { "-qdpbeta" };
+static const char *bootargOff[] { "-qdpoff" };       // disable QDP plugin entirely
+static const char *bootargDbg[] { "-qdpdbg" };       // verbose debug
+static const char *bootargBeta[] { "-qdpbeta" };     // (Lilu beta mode)
+// -qdpbasic: parsed inside pluginStart() — when set, every hook becomes pure
+//            passthrough to original (no SMC writes, no setProperty, no EDID
+//            substitution). Lets us toggle the fancy QDP behaviour off at
+//            runtime without rebuilding, leaving Lilu + the routed surface
+//            in place. Layered with BASELINE=1 build (which omits Lilu/QDP
+//            entirely) for graduated recovery.
 
 PluginConfiguration ADDPR(config) {
     xStringify(PRODUCT_NAME),

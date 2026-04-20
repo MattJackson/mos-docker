@@ -43,16 +43,16 @@ RUN git clone https://github.com/MattJackson/libapplegfx-vulkan.git /tmp/libappl
 RUN curl -sL https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz | tar xJ -C /tmp \
     && cd /tmp/qemu-${QEMU_VERSION} \
     && curl -sL https://github.com/MattJackson/mos-qemu/archive/refs/heads/main.tar.gz | tar xz -C /tmp \
-    && cp /tmp/qemu-mos15-main/hw/misc/applesmc.c hw/misc/applesmc.c \
-    && cp /tmp/qemu-mos15-main/hw/display/vmware_vga.c hw/display/vmware_vga.c \
-    && cp /tmp/qemu-mos15-main/hw/usb/dev-hid.c hw/usb/dev-hid.c \
-    && cp /tmp/qemu-mos15-main/hw/display/apple-gfx-pci-linux.c hw/display/ \
-    && cp /tmp/qemu-mos15-main/hw/display/apple-gfx-common-linux.c hw/display/ \
-    && cp /tmp/qemu-mos15-main/hw/display/apple-gfx-linux.h hw/display/ \
-    && cp /tmp/qemu-mos15-main/hw/display/meson.build hw/display/meson.build \
-    && cp /tmp/qemu-mos15-main/hw/display/Kconfig hw/display/Kconfig \
-    && cp /tmp/qemu-mos15-main/pc-bios/meson.build pc-bios/meson.build \
-    && cp /tmp/qemu-mos15-main/pc-bios/apple-gfx-pci.rom pc-bios/apple-gfx-pci.rom \
+    && cp /tmp/mos-qemu-main/hw/misc/applesmc.c hw/misc/applesmc.c \
+    && cp /tmp/mos-qemu-main/hw/display/vmware_vga.c hw/display/vmware_vga.c \
+    && cp /tmp/mos-qemu-main/hw/usb/dev-hid.c hw/usb/dev-hid.c \
+    && cp /tmp/mos-qemu-main/hw/display/apple-gfx-pci-linux.c hw/display/ \
+    && cp /tmp/mos-qemu-main/hw/display/apple-gfx-common-linux.c hw/display/ \
+    && cp /tmp/mos-qemu-main/hw/display/apple-gfx-linux.h hw/display/ \
+    && cp /tmp/mos-qemu-main/hw/display/meson.build hw/display/meson.build \
+    && cp /tmp/mos-qemu-main/hw/display/Kconfig hw/display/Kconfig \
+    && cp /tmp/mos-qemu-main/pc-bios/meson.build pc-bios/meson.build \
+    && cp /tmp/mos-qemu-main/pc-bios/apple-gfx-pci.rom pc-bios/apple-gfx-pci.rom \
     && ./configure \
         --target-list=x86_64-softmmu \
         --prefix=/usr \

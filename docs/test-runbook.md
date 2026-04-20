@@ -12,24 +12,35 @@ for real work, with fps scaling to host core count. M1..M8 are the
 bisected milestones on the road to that bar. Every milestone has
 one exit criterion and one verify script.
 
-| #  | Milestone                   | Exit criterion                                                                         | Verify script                   | Key exit codes                                                        |
-|----|-----------------------------|----------------------------------------------------------------------------------------|---------------------------------|-----------------------------------------------------------------------|
-| M1 | First end-to-end compile    | `docker build` succeeds, binary registers `apple-gfx-pci`, no panic                    | `tests/verify-m1.sh`            | 10 build-fail / 20 container-fail / 30 device-missing / 40 boot-timeout / 50 panic / 60 baseline-regression |
-| M2 | Guest kext attaches         | AppleParavirtGPU.kext binds to PCI IDs, MMIO reaches decoder, no panic                 | (covered by M1 step 6 + ioreg manual check) | —                                                                     |
-| M3 | metal-no-op round-trip      | `MTLCopyAllDevices >= 1`, empty cmdbuf `commit + waitUntilCompleted` returns 0         | `tests/verify-phase1.sh`        | 2 no-device / 4 cmdbuf-failed                                         |
-| M4 | First pixel                 | Metal clear-color → Vulkan clear → noVNC shows solid color                             | (manual, Phase 3)               | —                                                                     |
-| M5 | First shader                | One stock shader: AIR → LLVM → SPIR-V → lavapipe → visible triangle                    | (manual, Phase 3)               | —                                                                     |
-| M6 | Login screen renders        | loginwindow's CALayer compositing through our stack; Apple login visible at 1080p      | `tests/verify-login-screen.sh`  | 10 loginwindow-not-running / 20 capture-failed / 30 diff-exceeded / 40 reference-missing |
-| M7 | Static desktop correct      | Dock + menu bar + windows render without corruption at 1080p                           | `tests/verify-desktop-idle.sh`  | 10 WindowServer-missing / 20 capture-failed / 30 diff-exceeded / 40 reference-missing |
-| M8 | 30fps interactive (100%)    | Sustained 30fps at 1080p on common UI ops (drag, menu, cursor)                         | (benchmark TBD — Phase 5)       | —                                                                     |
+| #  | Milestone                   | Exit criterion                                                                         | Verify script                   | Status   | Key exit codes                                                        |
+|----|-----------------------------|----------------------------------------------------------------------------------------|---------------------------------|----------|-----------------------------------------------------------------------|
+| M1 | First end-to-end compile    | `docker build` succeeds, binary registers `apple-gfx-pci`, no panic                    | `tests/verify-m1.sh`            | REAL     | 10 build-fail / 20 container-fail / 30 device-missing / 40 boot-timeout / 50 panic / 60 baseline-regression |
+| M2 | Guest kext attaches         | AppleParavirtGPU.kext binds to PCI IDs, MMIO reaches decoder, no panic                 | `tests/verify-m2.sh`            | REAL (MMIO soft-scaffold) | 1 ssh / 10 kext-not-attached / 20 pci-not-bound / 30 panic / 40 no-mmio |
+| M3 | metal-no-op round-trip      | `MTLCopyAllDevices >= 1`, empty cmdbuf `commit + waitUntilCompleted` returns 0         | `tests/verify-m3.sh` (wraps `verify-phase1.sh`) | REAL     | 1 ssh / 10 phase1-failed / 20 mtl-count-zero / 30 decoder-errors    |
+| M4 | First pixel                 | Metal clear-color → Vulkan clear → noVNC shows solid color                             | `tests/verify-m4.sh` + `tests/metal-clear-screen.m` | SCAFFOLD | 1 ssh / 10 novnc-unreachable / 20 capture-failed / 30 diff-exceeded |
+| M5 | First shader                | One stock shader: AIR → LLVM → SPIR-V → lavapipe → visible triangle                    | `tests/verify-m5.sh` + `tests/metal-triangle.m`    | SCAFFOLD | 1 ssh / 10 catalog-missing / 20 cmdbuf-failed / 30 diff-exceeded    |
+| M6 | Login screen renders        | loginwindow's CALayer compositing through our stack; Apple login visible at 1080p      | `tests/verify-login-screen.sh`  | SCAFFOLD | 10 loginwindow-not-running / 20 capture-failed / 30 diff-exceeded / 40 reference-missing |
+| M7 | Static desktop correct      | Dock + menu bar + windows render without corruption at 1080p                           | `tests/verify-desktop-idle.sh`  | SCAFFOLD | 10 WindowServer-missing / 20 capture-failed / 30 diff-exceeded / 40 reference-missing |
+| M8 | 30fps interactive (100%)    | Sustained 30fps at 1080p on common UI ops (drag, menu, cursor)                         | (benchmark TBD — Phase 5)       | —        | —                                                                     |
 
-**Scaffold vs real:** M6 and M7 verify scripts are SCAFFOLDS today.
-Their infrastructure (process checks, screenshot capture, diff harness)
-is real and tested; their pixel-diff assertion is gated behind
-`GATE_ON_DIFF=1` and will only be meaningful once Phase 3
-(Metal->Vulkan translation) emits pixels through our stack and a
-reference image is captured. See `tests/screenshots/README.md` for
-the reference-capture workflow.
+**Scaffold vs real:**
+- `verify-m1.sh`, `verify-m2.sh`, `verify-m3.sh` (and its delegate
+  `verify-phase1.sh`) are REAL gates — they make positive assertions
+  about the plumbing that should be green today.
+- `verify-m2.sh` has ONE soft-scaffolded sub-check: MMIO-activity on the
+  decoder. Until `apple-gfx-pci-linux` publishes a counter property (or
+  QEMU enables `apple_gfx_pci_mmio_*` trace events by default), this
+  step warns rather than gates. Steps 1-3 of M2 still hard-gate.
+- `verify-m4.sh`, `verify-m5.sh`, `verify-login-screen.sh`,
+  `verify-desktop-idle.sh` are SCAFFOLDS. Their infrastructure
+  (process checks, screenshot capture, diff harness) is real and
+  tested; their pixel-diff assertion is gated behind `GATE_ON_DIFF=1`
+  and will only be meaningful once Phase 3 (Metal->Vulkan translation)
+  emits pixels through our stack and a reference image is captured.
+  See `tests/screenshots/README.md` for the reference-capture workflow.
+- `tests/metal-clear-screen.m` (M4) and `tests/metal-triangle.m` (M5)
+  are standalone Objective-C stubs. Build on a Mac host, scp to the VM,
+  run once the respective scaffold is graduating to real.
 
 ### Quick invocation reference
 
@@ -40,8 +51,18 @@ VM=user@vm-ip ./tests/verify-modes.sh
 # M1 — end-to-end build + apple-gfx-pci registered
 DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-m1.sh
 
-# M3 — Phase 1 Metal gate
-VM=user@vm-ip ./tests/verify-phase1.sh
+# M2 — guest kext attaches, MMIO reaches decoder, no panic
+DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-m2.sh
+
+# M3 — Metal no-op (MTLCopyAllDevices >= 1 + empty cmdbuf round-trip)
+DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-m3.sh
+# Or directly: VM=user@vm-ip ./tests/verify-phase1.sh
+
+# M4 scaffold — first pixel (requires metal-clear-screen built + scp'd)
+DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-m4.sh
+
+# M5 scaffold — first shader (requires metal-triangle built + scp'd)
+DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-m5.sh
 
 # M6 — login screen scaffold
 DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/verify-login-screen.sh
@@ -64,12 +85,36 @@ DOCKER_HOST=user@docker-host VM=user@vm-ip ./tests/run-all.sh
   display baseline: intact
 ```
 
+**M2** — last line on pass:
+```
+=== M2 gate: PASSED ===
+Next milestone: M3 — metal-no-op round-trip.
+```
+With a WARN line if MMIO-activity signal is not yet wired (soft-scaffolded
+sub-check). Steps 1-3 of M2 still hard-gate.
+
 **M3** — last line on pass:
 ```
-=== Phase 1 exit criterion MET ===
-  libapplegfx-vulkan + apple-gfx-pci-linux integration verified
-  next stage: Phase 2 — first Metal pixel (clear-color)
+=== M3 gate: PASSED ===
+Next milestone: M4 — first pixel (Metal clear-color → noVNC solid color).
 ```
+Delegates to `verify-phase1.sh` which prints `=== Phase 1 exit criterion MET ===`
+before M3 adds its decoder-error check.
+
+**M4 (scaffold mode)** — last line on pass:
+```
+=== verify-m4 scaffold: PASSED ===
+```
+With a WARN line noting the reference `tests/screenshots/reference/clear-color-red.png`
+is missing until Phase 3 renders a red frame through the stack.
+
+**M5 (scaffold mode)** — last line on pass:
+```
+=== verify-m5 scaffold: PASSED ===
+```
+With WARN lines for: shader catalog not deployed, `metal-triangle`
+binary not built on host, reference `tests/screenshots/reference/triangle.png`
+missing. All three clear once Phase 3 + `shader-catalog-plan.md` land.
 
 **M6 (scaffold mode)** — last line on pass:
 ```

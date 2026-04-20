@@ -61,10 +61,6 @@ FAILED=0
 # regression gate. Every run confirms it.
 run_one "Baseline display (verify-modes)" "verify-modes.sh" || FAILED=1
 
-# ---- Phase 1 gate: Metal device enumeration + empty cmdbuf ----------------
-# This maps to M3 in the milestone table — metal-no-op round trip.
-run_one "Phase 1 / M3 (Metal no-op)" "verify-phase1.sh" || FAILED=1
-
 # ---- M1: docker build green + apple-gfx-pci in binary ---------------------
 if [ "$SKIP_M1" = "1" ]; then
     echo "${YEL}SKIP${RST} M1 (SKIP_M1=1)"
@@ -74,6 +70,33 @@ elif [ -z "$DOCKER_HOST" ]; then
     RESULTS+=("SKIP  M1  (DOCKER_HOST not set)")
 else
     run_one "M1 (docker build + apple-gfx-pci)" "verify-m1.sh" || FAILED=1
+fi
+
+# ---- M2: AppleParavirtGPU kext attaches + MMIO reaches decoder ------------
+if [ -z "$DOCKER_HOST" ]; then
+    echo "${YEL}SKIP${RST} M2 (DOCKER_HOST not set)"
+    RESULTS+=("SKIP  M2  (DOCKER_HOST not set)")
+else
+    run_one "M2 (guest kext attaches)" "verify-m2.sh" || FAILED=1
+fi
+
+# ---- M3: metal-no-op round-trip (wraps verify-phase1.sh) ------------------
+run_one "M3 (metal-no-op round-trip)" "verify-m3.sh" || FAILED=1
+
+# ---- M4 scaffold: first pixel (Metal clear-color → noVNC) -----------------
+if [ -z "$DOCKER_HOST" ]; then
+    echo "${YEL}SKIP${RST} M4 (DOCKER_HOST not set)"
+    RESULTS+=("SKIP  M4 scaffold  (DOCKER_HOST not set)")
+else
+    run_one "M4 scaffold (first pixel)" "verify-m4.sh" || FAILED=1
+fi
+
+# ---- M5 scaffold: first shader (triangle) ---------------------------------
+if [ -z "$DOCKER_HOST" ]; then
+    echo "${YEL}SKIP${RST} M5 (DOCKER_HOST not set)"
+    RESULTS+=("SKIP  M5 scaffold  (DOCKER_HOST not set)")
+else
+    run_one "M5 scaffold (first shader)" "verify-m5.sh" || FAILED=1
 fi
 
 # ---- M6 scaffold: login screen ---------------------------------------------

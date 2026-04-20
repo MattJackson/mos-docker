@@ -40,6 +40,8 @@ RUN curl -sL https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz | tar xJ -C /
     && cp /tmp/qemu-mos15-main/hw/display/apple-gfx-linux.h hw/display/ \
     && cp /tmp/qemu-mos15-main/hw/display/meson.build hw/display/meson.build \
     && cp /tmp/qemu-mos15-main/hw/display/Kconfig hw/display/Kconfig \
+    && cp /tmp/qemu-mos15-main/pc-bios/meson.build pc-bios/meson.build \
+    && cp /tmp/qemu-mos15-main/pc-bios/apple-gfx-pci.rom pc-bios/apple-gfx-pci.rom \
     && ./configure \
         --target-list=x86_64-softmmu \
         --prefix=/usr \

@@ -160,3 +160,11 @@ ssh docker "ls -la /data/macos/qemu-mos15"
 - `/data/macos/qemu-mos15` (on docker host) — the binary the container bind-mounts
 
 See `~/mos/qemu-mos15/README.md` for the Dockerfile-based build.
+
+---
+
+## pc-bios overlay pattern
+
+Same `cp` overlay approach as `hw/display/*` applies to `pc-bios/`. The Dockerfile copies `pc-bios/meson.build` (replaces upstream to add `apple-gfx-pci.rom` to the installed blobs list) and the ROM blob itself (`pc-bios/apple-gfx-pci.rom`, 16896 bytes) from the qemu-mos15 tarball over the freshly extracted QEMU 10.2.2 tree before `./configure`.
+
+`apple-gfx-pci.rom` is Apple's extracted `AppleParavirtEFI.rom` (Phase 1.E), captured from the macOS host and shipped as the default option ROM for the `apple-gfx-pci` device. Source-of-record lives at `~/mos/paravirt-re/option-rom/AppleParavirtEFI.rom`. Phase 5.X will replace this with an in-tree EDK2 build.

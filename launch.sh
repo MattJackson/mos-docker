@@ -3,6 +3,44 @@ set -eu
 
 cd /opt/macos
 
+# ---------------------------------------------------------------------------
+# apple-gfx-pci gpu_cores plumbing.
+#
+# GPU_CORES env var controls the lavapipe worker-thread pool for the
+# apple-gfx-pci display device.
+#   unset / 0    -> emit "-device apple-gfx-pci" (lavapipe picks host core count)
+#   1..          -> emit "-device apple-gfx-pci,gpu_cores=N"
+#   non-numeric, negative, or "host" -> warn, fall back to unset behavior
+#
+# Spec: /Users/mjackson/mos/paravirt-re/gpu-cores-implementation-spec.md
+# Curve: /Users/mjackson/mos/memory/project_tunable_gpu_cores.md
+# ---------------------------------------------------------------------------
+GPU_CORES_RAW="${GPU_CORES:-0}"
+APPLE_GFX_DEVICE="-device apple-gfx-pci"
+if [[ "${GPU_CORES_RAW}" =~ ^[0-9]+$ ]]; then
+    if [ "${GPU_CORES_RAW}" -eq 0 ]; then
+        echo "apple-gfx-pci: GPU_CORES=0 (unset) -> lavapipe uses host core count"
+    else
+        APPLE_GFX_DEVICE="-device apple-gfx-pci,gpu_cores=${GPU_CORES_RAW}"
+        echo "apple-gfx-pci: GPU_CORES=${GPU_CORES_RAW} -> LP_NUM_THREADS=${GPU_CORES_RAW}"
+    fi
+else
+    echo "apple-gfx-pci: WARN: GPU_CORES='${GPU_CORES_RAW}' is not a non-negative integer;" \
+         "falling back to unset (lavapipe picks host core count)." \
+         "'host' auto-detect is reserved for a future release." >&2
+fi
+
+# Fail fast if the QEMU build in this image doesn't know about apple-gfx-pci.
+# (A missing device is the failure mode when someone runs an older Dockerfile
+# build against a compose file that sets GPU_CORES.)
+if ! qemu-system-x86_64 -device help 2>&1 | grep -q '^name "apple-gfx-pci"'; then
+    echo "launch.sh: ERROR: this QEMU build does not expose the apple-gfx-pci device." >&2
+    echo "  Rebuild the container image from a Dockerfile that includes" >&2
+    echo "  libapplegfx-vulkan + the qemu-mos15 apple-gfx-pci-linux.c patch." >&2
+    echo "  See the Dockerfile builder stage; check the image build date." >&2
+    exit 1
+fi
+
 # Reset NVRAM if requested (touch /data/.reset-nvram to trigger)
 if [ -f /data/.reset-nvram ]; then
     echo "NVRAM reset requested"
@@ -65,4 +103,5 @@ exec qemu-system-x86_64 -m "${RAM:-4}000" \
     -vnc 127.0.0.1:1 \
     -vga none \
     -device vmware-svga,vgamem_mb="${VGAMEM_MB:-512}" \
+    ${APPLE_GFX_DEVICE} \
     ${EXTRA:-}

@@ -97,6 +97,7 @@ RUN chmod +x /opt/macos/launch.sh
 
 WORKDIR /opt/macos
 
-ENV RAM=4 SMP=4 CORES=4 IMAGE_PATH=/opt/macos/mac_hdd_ng.img DISK_SIZE=256G EXTRA=
+ENV RAM=4 SMP=4 CORES=4 IMAGE_PATH=/opt/macos/mac_hdd_ng.img DISK_SIZE=256G EXTRA= \
+    GPU_CORES=0
 
 CMD ["/opt/macos/launch.sh"]

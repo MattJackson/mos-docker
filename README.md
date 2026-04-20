@@ -90,6 +90,75 @@ For the deploy walk-through with expected pass/fail signals, see [`docs/test-run
 - **macOS host** (Apple Silicon or Intel) with Xcode CLI tools — needed for kext cross-compilation and the host-side Metal/CG probes in `tests/`
 - A built macOS install image (initial install is a separate process — recovery image + manual installer run; pipeline starts after install)
 
+## Configuration
+
+Runtime knobs are set via environment variables in `docker-compose.yml`. The
+pattern is `NAME=${NAME:-default}` so host-level exports override the compose
+default without editing the file.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `RAM` | `16` | VM RAM in GB. Install needs >=24; steady-state 16 is comfortable. |
+| `SMP` | `16` | vCPU sockets x threads. |
+| `CORES` | `16` | vCPU cores per socket. |
+| `DISK_SIZE` | `256G` | Disk size on first launch. |
+| `VGAMEM_MB` | `512` | VMware SVGA framebuffer VRAM (capped at 512 MB device-side). |
+| `HOST_IFACE` | `eth0` | Host NIC for macvtap bridge; find with `ip addr show`. |
+| `GPU_CORES` | `0` | Lavapipe worker-thread budget for the apple-gfx-pci display (see below). |
+
+### `GPU_CORES` — apple-gfx-pci lavapipe worker budget
+
+`GPU_CORES` caps the number of worker threads Mesa's lavapipe (the CPU Vulkan
+backend behind `apple-gfx-pci`) will spin up. The value is forwarded to QEMU as
+`-device apple-gfx-pci,gpu_cores=N`, which in turn sets `LP_NUM_THREADS=N`
+inside the QEMU process before the Vulkan instance is created.
+
+| Value | Behavior |
+|---|---|
+| `0` (default) | Emit `-device apple-gfx-pci` with no `gpu_cores=` suffix. Lavapipe falls back to its own default, which is the host CPU core count. |
+| `1..64` | Emit `-device apple-gfx-pci,gpu_cores=N`. Caps lavapipe's worker pool at N. |
+| non-numeric / negative / `host` | Rejected by `launch.sh` with a warning; falls back to unset behavior. `host` is reserved for a future auto-detect feature. |
+
+**How to set:**
+
+```bash
+# Option A: inline with docker compose up
+GPU_CORES=8 docker compose up -d
+
+# Option B: export in the shell first
+export GPU_CORES=8
+docker compose up -d
+
+# Option C: edit docker-compose.yml and replace the default
+```
+
+**How to observe the effective value:** `launch.sh` logs one of:
+
+```
+apple-gfx-pci: GPU_CORES=0 (unset) -> lavapipe uses host core count
+apple-gfx-pci: GPU_CORES=8 -> LP_NUM_THREADS=8
+```
+
+at container startup. Tail with `docker logs macos-macos-1 | grep apple-gfx-pci`.
+
+**Picking a value:** the measured scaling curve (2026-04-20, 1080p vkmark
+desktop, Mesa lavapipe 25.2.8) is linear-ish to 8 cores, then
+memory-bandwidth-limited:
+
+| Cores | 1080p fps |
+|---|---|
+| 1  | 17 |
+| 4  | 65 |
+| 8  | 125 |
+| 16 | 216 |
+
+Rule of thumb: `SMP + GPU_CORES <= host_cores - 2` (reserve two host cores for
+the QEMU main loop, IO threads, and docker-engine work). See
+[`memory/project_tunable_gpu_cores.md`](../mos/memory/project_tunable_gpu_cores.md)
+in the mos repo for the full analysis and
+[`docs/qemu-mos15-build.md`](docs/qemu-mos15-build.md#tuning-gpu_cores-on-the-apple-gfx-pci-device)
+for device-level details.
+
 ## Status — what's known broken or limited
 
 | Issue | State |

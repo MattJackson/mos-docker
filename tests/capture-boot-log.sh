@@ -152,9 +152,9 @@ if [ ! -f "$PATTERNS_FILE" ]; then
     PANIC_REGEX=""
 else
     # Build a single alt-group regex from fatal rows only. Columns are
-    # <category>|<severity>|<regex>|<description>. We want column 3 when
-    # column 2 == "fatal".
-    PANIC_REGEX=$(awk -F'|' '
+    # <category>\t<severity>\t<regex>\t<description>. We want column 3
+    # when column 2 == "fatal".
+    PANIC_REGEX=$(awk -F'\t' '
         /^[[:space:]]*#/ { next }
         /^[[:space:]]*$/ { next }
         $2 == "fatal" {
@@ -165,7 +165,10 @@ else
     if [ -z "$PANIC_REGEX" ]; then
         warn "panic.patterns had no fatal rows — panic trigger disabled"
     else
-        PATTERN_COUNT=$(echo "$PANIC_REGEX" | awk -F'|' '{print NF}')
+        # Each fatal pattern becomes one alternation. Count by splitting
+        # the output on '|' at the top level — awk with a single-field
+        # separator handles this cleanly.
+        PATTERN_COUNT=$(awk -F'\t' '$2 == "fatal"' "$PATTERNS_FILE" | grep -vcE '^[[:space:]]*(#|$)')
         pass "loaded $PATTERN_COUNT fatal panic patterns"
     fi
 fi

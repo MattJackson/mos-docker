@@ -132,9 +132,10 @@ PAT_DESC=()
 load_patterns() {
     local pf="$1"
     [ -f "$pf" ] || return 0
-    while IFS='|' read -r cat sev rgx desc; do
+    # Fields are tab-separated to keep '|' free for regex alternation.
+    local TAB=$'\t'
+    while IFS="$TAB" read -r cat sev rgx desc; do
         [ -z "$cat" ] && continue
-        # Trim leading/trailing whitespace and comment lines.
         case "$cat" in \#*) continue ;; esac
         [ -z "$rgx" ] && continue
         PAT_CAT+=("$cat")

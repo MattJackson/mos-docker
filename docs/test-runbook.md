@@ -345,6 +345,59 @@ Runs the whole stack 20 times in a row. Counts pass/fail.
 
 ---
 
+## Boot-log capture + analyze + VM health report
+
+Three scripts for observing a boot rather than just gating on it:
+
+- **`tests/capture-boot-log.sh`** — kicks a fresh boot and captures
+  QEMU serial / `docker logs` into
+  `tests/capture-boot-logs/<timestamp>/`. Stops at the first of:
+  SSH reachable (exit 0), panic regex matched (exit 10), timeout
+  (exit 20). Set `VM=` to enable the SSH-up trigger; unset to run
+  capture-only. `--timeout N` overrides the default 300s. Artefacts
+  written: `serial.log`, `docker.log`, `trigger.txt`, `status.txt`,
+  `duration-sec.txt`, `panic-line.txt` (on panic), `analysis.json`
+  (after analyze runs).
+- **`tests/analyze-boot-log.sh <capture-dir>`** — pattern-matches a
+  capture against `tests/patterns/*.patterns` and emits a JSON
+  summary. Exit 0 if expected milestones (M1-M3) marked or capture
+  ended with SSH-up; exit 1 on panic; exit 2 on missing milestones.
+  JSON shape documented in the script header.
+- **`tests/vm-health-report.sh <output-dir>`** — post-boot-success
+  introspection. Gathers `ioreg`, `dmesg`, `log show` (kernel
+  subsystem, last 5m), `system_profiler`, `ps auxc`, `docker ps`,
+  `docker logs --tail 500`, repo SHAs, and bundles as a tar.gz.
+  The file operators attach to bug reports.
+
+**Pattern library:** `tests/patterns/panic.patterns`,
+`tests/patterns/milestone-signals.patterns`,
+`tests/patterns/hang-indicators.patterns`. Tab-separated 4-column
+format. See `tests/patterns/README.md` for authoring guide.
+
+**run-all integration:** opt-in via env flags.
+`CAPTURE_BOOT=1 DOCKER_HOST=... ./tests/run-all.sh` captures + analyzes
+the boot first. `VM_HEALTH_REPORT=1 VM=... ./tests/run-all.sh`
+produces a health-report tar.gz at the end of the run. Neither is on
+by default to keep run-all fast for iteration.
+
+**Signals detected per milestone (non-exhaustive):**
+
+- M1: OpenCore banner, `EB|#LOG:EXITBS:START`, `AppleSMC registered`,
+  `hfs: mounted`, `loginwindow`, `WindowServer`.
+- M2: `AppleParavirtGPU::start`, `apple-gfx-pci.*matched`,
+  `apple_gfx_pci_realize`, `vendor-id.*0x106b`, `kextd.*AppleParavirtGPU`.
+- M3: `MTLCreateSystemDefaultDevice returned non-null`,
+  `lagfx_device_new`, `lagfx_cmdbuf_submit`, `lagfx_cmdbuf_complete`,
+  `applegfx.*commit`.
+
+**Panic signatures:** `panic(cpu N caller`, `Kernel trap at`,
+`Kernel panic`, `Backtrace (CPU N)`, `AppleParavirtGPU.*assert`,
+`apple-gfx-pci.*panic`, `qemu: fatal:`, `out of memory`,
+`page fault in kernel mode`, etc. See
+`tests/patterns/panic.patterns` for the full list.
+
+---
+
 ## Quick reference — where each signal comes from
 
 | Signal | Source | Read with |

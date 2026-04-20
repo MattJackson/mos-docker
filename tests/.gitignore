@@ -1,0 +1,16 @@
+# Per-run boot captures produced by capture-boot-log.sh. Preserved on
+# disk for analysis but never committed — each is 100s of KB of log.
+capture-boot-logs/
+
+# Per-run VM health reports produced by vm-health-report.sh. The raw
+# bundle dir AND the wrapping tar.gz both live here; operators attach
+# the tar.gz to bug reports but do not commit.
+vm-health-reports/
+
+# Compiled test helpers (built by `clang` on a Mac dev host and shipped
+# to the VM; see tests/README.md / docs/test-runbook.md §0).
+list-modes
+metal-no-op
+metal-probe
+metal-clear-screen
+metal-triangle

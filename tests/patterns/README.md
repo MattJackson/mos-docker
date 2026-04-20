@@ -16,8 +16,12 @@ files partition the signal space:
 ## Line format
 
 ```
-<category>|<severity>|<regex>|<one-line human description>
+<category>	<severity>	<regex>	<one-line human description>
 ```
+
+Fields are **tab-separated** (one literal `\t` between each). Tab is
+used rather than pipe so the regex column can contain a literal `|`
+(alternation) or `\|` without any escaping dance.
 
 - `<category>` — short tag. Conventionally: `panic`, `kext-fail`,
   `timeout`, `mX` (milestone id), `hang`, etc. Free-form; analyze
@@ -26,12 +30,13 @@ files partition the signal space:
   in `panic.patterns` trips the capture-side panic trigger.
 - `<regex>` — an extended regex (passed to `grep -E`). Anchor if the
   pattern is prone to false positives (e.g. prefix with `panic\(`).
-  Escape literal parens / brackets. Do NOT include the delimiters.
+  Escape literal parens / brackets. Tab is the field delimiter —
+  anything else (including `|` for alternation) is fair game inside
+  the regex.
 - `<description>` — human-readable; shows up in analyze's
   `markers_found` JSON field.
 
-Lines beginning with `#` and blank lines are ignored. Whitespace
-inside the regex field IS significant (the split is on `|`).
+Lines beginning with `#` and blank lines are ignored.
 
 ## Authoring new patterns
 

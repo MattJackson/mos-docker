@@ -56,6 +56,35 @@ run_one() {
 
 FAILED=0
 
+# ---- Optional: boot-log capture + analyze ---------------------------------
+# Off by default; opt in with CAPTURE_BOOT=1. When enabled, captures a
+# fresh boot into tests/capture-boot-logs/<stamp>/ and runs the pattern
+# analyzer against it BEFORE the milestone verifies fire. Surfaces
+# panic / hang / missing-milestone signals up front so an operator
+# doesn't have to read 2000 lines of docker logs by hand.
+#
+# Exit semantics: capture failures are logged but do NOT short-circuit
+# the rest of run-all — the milestone verifies still run. The capture
+# is an observability layer, not a gate.
+if [ "${CAPTURE_BOOT:-0}" = "1" ]; then
+    if [ -z "$DOCKER_HOST" ]; then
+        echo "${YEL}SKIP${RST} boot-log capture (DOCKER_HOST not set)"
+        RESULTS+=("SKIP  boot-log capture  (DOCKER_HOST not set)")
+    else
+        run_one "Boot-log capture" "capture-boot-log.sh" || true
+        # Find the most-recent capture dir and analyze it.
+        LATEST_CAP=$(ls -1dt "$TESTS_DIR/capture-boot-logs/"*/ 2>/dev/null | head -1)
+        if [ -n "$LATEST_CAP" ]; then
+            echo "${BLD}${BLU}########## Boot-log analyze — analyze-boot-log.sh ##########${RST}"
+            if "$TESTS_DIR/analyze-boot-log.sh" "$LATEST_CAP" >/dev/null 2>&1; then
+                RESULTS+=("${GRN}PASS${RST}  Boot-log analyze  ($LATEST_CAP)")
+            else
+                RESULTS+=("${YEL}WARN${RST}  Boot-log analyze  (signals found; see $LATEST_CAP/analysis.json)")
+            fi
+        fi
+    fi
+fi
+
 # ---- Baseline: display path intact (verify-modes) --------------------------
 # This isn't a milestone per se — it's the ongoing "we didn't break display"
 # regression gate. Every run confirms it.
@@ -113,6 +142,24 @@ if [ -z "$DOCKER_HOST" ]; then
     RESULTS+=("SKIP  M7 scaffold  (DOCKER_HOST not set)")
 else
     run_one "M7 scaffold (desktop idle)" "verify-desktop-idle.sh" || FAILED=1
+fi
+
+# ---- Optional: post-boot health report ------------------------------------
+# Off by default; opt in with VM_HEALTH_REPORT=1. After the milestone
+# verifies run, collect ioreg / dmesg / log-show / docker-logs into a
+# tar.gz in tests/vm-health-reports/ for attaching to a bug report.
+if [ "${VM_HEALTH_REPORT:-0}" = "1" ]; then
+    if [ -n "$VM" ]; then
+        HEALTH_OUT_DIR="$TESTS_DIR/vm-health-reports"
+        mkdir -p "$HEALTH_OUT_DIR"
+        echo
+        echo "${BLD}${BLU}########## VM health report — vm-health-report.sh ##########${RST}"
+        if "$TESTS_DIR/vm-health-report.sh" "$HEALTH_OUT_DIR"; then
+            RESULTS+=("${GRN}PASS${RST}  VM health report  ($HEALTH_OUT_DIR)")
+        else
+            RESULTS+=("${YEL}WARN${RST}  VM health report  (partial; see $HEALTH_OUT_DIR)")
+        fi
+    fi
 fi
 
 # ---- Aggregate report ------------------------------------------------------

@@ -72,10 +72,18 @@ RUN curl -sL https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz | tar xJ -C /
 FROM alpine:3.21
 
 # 1. Alpine + runtime deps (changes rarely)
+# socat: used to talk to QEMU's HMP/QMP unix sockets from outside the container
+# (see README.md "Logging" section and launch.sh boot-diagnostics block).
 RUN apk add --no-cache \
     glib pixman libcap-ng libseccomp libslirp \
     libaio libbz2 dtc bash iproute2 ovmf \
-    vulkan-loader mesa-vulkan-swrast
+    vulkan-loader mesa-vulkan-swrast \
+    socat
+
+# 1b. Boot-diagnostics directories. launch.sh also mkdir -p's these (safe for
+# bind-mounted host volumes), but pre-creating keeps the image self-contained
+# when run without the compose volume mounts.
+RUN mkdir -p /data/logs /data/run
 
 # 2. Recovery image (3.2GB, never changes after initial download)
 COPY sequoia_recovery.img /opt/macos/recovery.img

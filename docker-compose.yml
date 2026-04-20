@@ -25,9 +25,13 @@ services:
       #   Measured scaling curve: mos/memory/project_tunable_gpu_cores.md
       #   Device-side docs:      docs/qemu-mos15-build.md#tuning-gpu_cores-on-the-apple-gfx-pci-device
       - GPU_CORES=${GPU_CORES:-0}
+      - LOG_DIR=/data/logs                 # Where launch.sh writes per-boot serial logs. Host path: ./logs/
+      - RUN_DIR=/data/run                  # Where launch.sh binds the HMP + QMP unix sockets. Host path: ./run/
     volumes:
       - ./mac_hdd_ng.img:/image            # The macOS install/runtime disk. Touch this file empty to trigger install mode.
       - ./launch.sh:/opt/macos/launch.sh:ro  # Source-of-truth launch.sh from this repo; lets env vars actually apply
+      - ./logs:/data/logs                  # Per-boot serial logs (serial-YYYYMMDD-HHMMSS.log). Read by tests/capture-boot-log.sh.
+      - ./run:/data/run                    # QEMU HMP + QMP unix sockets. From host: socat - unix:$(pwd)/run/qemu-monitor.sock
     network_mode: host                     # macvtap bridge needs host networking
 
   novnc:

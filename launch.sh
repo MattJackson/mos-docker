@@ -48,6 +48,44 @@ if [ -f /data/.reset-nvram ]; then
     rm -f /data/.reset-nvram
 fi
 
+# ---------------------------------------------------------------------------
+# Boot diagnostics: serial log file + HMP/QMP monitor sockets.
+#
+# Why:
+#   - Serial log: captures the QEMU guest's first serial line (OVMF + kernel
+#     early prints when console=ttyS0 is asked for). Lands on a host-mounted
+#     volume (see docker-compose.yml: ./logs:/data/logs) so the capture/analyze
+#     scripts in tests/ can read it without docker-exec gymnastics.
+#   - HMP monitor socket: human-readable QEMU monitor, exposed on a host-mounted
+#     unix socket (./run:/data/run). An operator outside the container can run
+#     `socat - unix:$(pwd)/run/qemu-monitor.sock` and issue commands like
+#     `info qtree`, `screendump /data/logs/frame.ppm`, `quit`.
+#   - QMP socket: structured JSON protocol, same semantics as HMP but scriptable.
+#
+# Log rotation policy:
+#   Each boot writes a fresh timestamped serial log (append=off). No in-container
+#   rotation daemon — operator is expected to prune /data/logs on the host. See
+#   README.md "Logging" section for a sample `find ... -mtime +N -delete` line.
+#   At ~1 line/ms during a kernel panic this can grow to ~100 MB/hour; size-cap
+#   with host-level logrotate if you intend to leave a VM running for days.
+#
+# Spec: tests/capture-boot-log.sh (produced by the capture/analyze agent) reads
+# /data/logs/serial-*.log via the bind-mount.
+# ---------------------------------------------------------------------------
+LOG_DIR="${LOG_DIR:-/data/logs}"
+RUN_DIR="${RUN_DIR:-/data/run}"
+mkdir -p "${LOG_DIR}" "${RUN_DIR}"
+BOOT_TS="$(date +%Y%m%d-%H%M%S)"
+SERIAL_LOG="${LOG_DIR}/serial-${BOOT_TS}.log"
+HMP_SOCK="${RUN_DIR}/qemu-monitor.sock"
+QMP_SOCK="${RUN_DIR}/qemu-qmp.sock"
+# Stale sockets from a previous boot block `server=on`; clear them.
+rm -f "${HMP_SOCK}" "${QMP_SOCK}"
+echo "Serial log:             ${SERIAL_LOG}"
+echo "Monitor socket (HMP):   ${HMP_SOCK}"
+echo "QMP socket:             ${QMP_SOCK}"
+echo "  -> from host: socat - unix:\$(pwd)/run/qemu-monitor.sock"
+
 # Detect install vs running mode
 CURRENT_SIZE=$(stat -c%s "${IMAGE_PATH}" 2>/dev/null || echo 0)
 INSTALL_MEDIA=""
@@ -120,6 +158,11 @@ exec qemu-system-x86_64 -m "${RAM_MB_STR}" \
     -device virtio-blk-pci,drive=MacHDD \
     -netdev tap,id=net0,fd=3 \
     -device virtio-net-pci,netdev=net0,mac="${MAC}" \
+    -chardev file,id=serial_file,path="${SERIAL_LOG}",append=off \
+    -serial chardev:serial_file \
+    -chardev socket,id=hmp_sock,path="${HMP_SOCK}",server=on,wait=off \
+    -monitor chardev:hmp_sock \
+    -qmp unix:"${QMP_SOCK}",server=on,wait=off \
     -display none \
     -vnc 127.0.0.1:1 \
     -vga none \

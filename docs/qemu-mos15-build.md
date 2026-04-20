@@ -225,3 +225,27 @@ memory-backend-memfd,id=mem,size=16000M,share=on
 Same `cp` overlay approach as `hw/display/*` applies to `pc-bios/`. The Dockerfile copies `pc-bios/meson.build` (replaces upstream to add `apple-gfx-pci.rom` to the installed blobs list) and the ROM blob itself (`pc-bios/apple-gfx-pci.rom`, 16896 bytes) from the qemu-mos15 tarball over the freshly extracted QEMU 10.2.2 tree before `./configure`.
 
 `apple-gfx-pci.rom` is Apple's extracted `AppleParavirtEFI.rom` (Phase 1.E), captured from the macOS host and shipped as the default option ROM for the `apple-gfx-pci` device. Source-of-record lives at `~/mos/paravirt-re/option-rom/AppleParavirtEFI.rom`. Phase 5.X will replace this with an in-tree EDK2 build.
+
+## Iterating with the QEMU monitor attached
+
+`launch.sh` now exposes an HMP monitor and a QMP socket on host-mounted unix
+sockets (`./run/qemu-monitor.sock`, `./run/qemu-qmp.sock`) — see the README's
+Logging section for the full surface. When fast-iterating on a patch you can
+drive the running QEMU from the docker host without restarting the container:
+
+```bash
+# HMP: dump the device tree after a vmware_vga.c change
+echo 'info qtree' | socat - unix:/srv/mos-docker/run/qemu-monitor.sock
+
+# HMP: grab a framebuffer snapshot to diff against the previous build
+echo 'screendump /data/logs/frame-post-patch.ppm' \
+    | socat - unix:/srv/mos-docker/run/qemu-monitor.sock
+
+# QMP: query-status (is the guest running, paused, internal-error?)
+( echo '{"execute":"qmp_capabilities"}'; echo '{"execute":"query-status"}' ) \
+    | socat - unix:/srv/mos-docker/run/qemu-qmp.sock
+```
+
+This is a read-mostly surface — `system_reset` / `quit` / `stop` / `cont` are
+available if you want to force a cycle without racing the container's
+`restart: unless-stopped` policy.

@@ -105,6 +105,8 @@ default without editing the file.
 | `VGAMEM_MB` | `512` | VMware SVGA framebuffer VRAM (capped at 512 MB device-side). |
 | `HOST_IFACE` | `eth0` | Host NIC for macvtap bridge; find with `ip addr show`. |
 | `GPU_CORES` | `0` | Lavapipe worker-thread budget for the apple-gfx-pci display (see below). |
+| `LOG_DIR` | `/data/logs` | In-container path for per-boot serial logs. Host path via compose volume: `./logs/`. |
+| `RUN_DIR` | `/data/run` | In-container path for the QEMU HMP + QMP unix sockets. Host path via compose volume: `./run/`. |
 
 ### Guest RAM backing — `memory-backend-memfd,share=on` (Phase 2 requirement)
 
@@ -191,6 +193,75 @@ the QEMU main loop, IO threads, and docker-engine work). See
 in the mos repo for the full analysis and
 [`docs/qemu-mos15-build.md`](docs/qemu-mos15-build.md#tuning-gpu_cores-on-the-apple-gfx-pci-device)
 for device-level details.
+
+## Logging and live introspection
+
+`launch.sh` wires three diagnostic surfaces through host-mounted volumes so tests
+and operators can observe the VM without `docker exec`:
+
+| Surface | In-container path | Host path | Purpose |
+|---|---|---|---|
+| Serial log | `/data/logs/serial-<ts>.log` | `./logs/serial-<ts>.log` | QEMU guest serial (OVMF, kernel early prints if `console=ttyS0`). |
+| HMP monitor | `/data/run/qemu-monitor.sock` | `./run/qemu-monitor.sock` | Human-readable QEMU monitor. |
+| QMP socket | `/data/run/qemu-qmp.sock` | `./run/qemu-qmp.sock` | JSON protocol for scripted introspection. |
+
+### Serial log
+
+Each boot writes a fresh timestamped file under `./logs/` on the host. The QEMU
+flags are:
+
+```
+-chardev file,id=serial_file,path=/data/logs/serial-YYYYMMDD-HHMMSS.log,append=off
+-serial chardev:serial_file
+```
+
+`docker logs macos-macos-1` still shows the launch-script output (memory-backend
+banner, GPU_CORES line, boot announcements) because only the guest's first
+serial port is redirected; QEMU's own stderr is untouched.
+
+No in-container rotation. Prune on the host when it gets large:
+
+```bash
+# keep the last 14 days
+find ./logs -name 'serial-*.log' -mtime +14 -delete
+```
+
+A running VM emits roughly 10-100 KB/hour of serial traffic during normal
+operation; a kernel panic can spike to ~100 MB/hour.
+
+### Monitor (HMP) from outside the container
+
+```bash
+# Interactive human-readable monitor (Ctrl-D to exit)
+socat - unix:$(pwd)/run/qemu-monitor.sock
+
+# One-shot command
+echo 'info qtree' | socat - unix:$(pwd)/run/qemu-monitor.sock
+```
+
+Useful commands:
+
+| Command | What |
+|---|---|
+| `info qtree` | Dump the live device tree (every bus, every device, every property). |
+| `info pci` | List all attached PCI devices with vendor/device/function. |
+| `info registers` | Dump vCPU register state (per `-cpu` block). |
+| `info status` | VM running / paused / internal-error. |
+| `screendump /data/logs/frame.ppm` | Capture the VGA framebuffer to a PPM file (readable at `./logs/frame.ppm` on the host). |
+| `system_reset` | Reset the guest (no container restart). |
+| `quit` | Tear down the VM. Container restart policy brings it back. |
+
+### QMP from outside the container
+
+```bash
+# Capabilities handshake then query-status
+( echo '{"execute":"qmp_capabilities"}'; echo '{"execute":"query-status"}' ) \
+    | socat - unix:$(pwd)/run/qemu-qmp.sock
+```
+
+For automated capture the capture/analyze pipeline in `tests/capture-boot-log.sh`
+consumes the serial log directly from `./logs/` and may drive QMP for
+synchronization — see that script for the current contract.
 
 ## Status — what's known broken or limited
 

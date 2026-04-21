@@ -56,10 +56,10 @@ is the summary.
 - **Git state — all five repos pushed to origin.** The Dockerfile
   fetches tarballs from GitHub, not local trees. Run:
   ```bash
-  git -C /Users/mjackson/libapplegfx-vulkan push
-  git -C /Users/mjackson/qemu-mos15       push
-  git -C /Users/mjackson/docker-macos     push
-  git -C /Users/mjackson/mos              push   # private
+  git -C /Users/mjackson/Developer/libapplegfx-vulkan push
+  git -C /Users/mjackson/Developer/qemu-mos15       push
+  git -C /Users/mjackson/Developer/docker-macos     push
+  git -C /Users/mjackson/Developer/mos              push   # private
   git -C /Users/mjackson/mos-opencore     push 2>/dev/null || true
   ```
   If any of these are behind origin, M1 will silently build against
@@ -507,10 +507,10 @@ filing. Without these, the report is unactionable.
 ```bash
 # --- Git SHAs: proves which tree was actually built ---
 ssh "${DOCKER_HOST_SSH}" "git -C ${REPO_DIR} rev-parse HEAD"
-git -C /Users/mjackson/libapplegfx-vulkan rev-parse HEAD
-git -C /Users/mjackson/qemu-mos15         rev-parse HEAD
-git -C /Users/mjackson/docker-macos       rev-parse HEAD
-git -C /Users/mjackson/mos                rev-parse HEAD
+git -C /Users/mjackson/Developer/libapplegfx-vulkan rev-parse HEAD
+git -C /Users/mjackson/Developer/qemu-mos15         rev-parse HEAD
+git -C /Users/mjackson/Developer/docker-macos       rev-parse HEAD
+git -C /Users/mjackson/Developer/mos                rev-parse HEAD
 git -C /Users/mjackson/mos-opencore       rev-parse HEAD 2>/dev/null || echo n/a
 
 # --- Compose + serial logs ---

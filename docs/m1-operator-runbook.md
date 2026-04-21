@@ -25,7 +25,7 @@ Before you sit down. All must be true.
 - [ ] SSH key access: `ssh matthew@portainer-1 true` succeeds.
 - [ ] Both mos-side repos pushed — the Dockerfile fetches tarballs
   from GitHub, not local trees. Run
-  `git -C /Users/mjackson/libapplegfx-vulkan push && git -C /Users/mjackson/qemu-mos15 push`.
+  `git -C /Users/mjackson/Developer/libapplegfx-vulkan push && git -C /Users/mjackson/Developer/qemu-mos15 push`.
 - [ ] Docker engine up on the host (`systemctl status docker` via SSH).
 - [ ] `./setup.sh` has been run in `~/mos/docker-macos/` and
   `volumes/recovery.img` (~3.2 GB) + `volumes/opencore.img` (~512 MB)
@@ -83,7 +83,7 @@ Any non-zero exit → see Step 3.
 
 | Symptom (from build log) | Cause | Fix |
 |---|---|---|
-| `cp: cannot stat '.../pc-bios/apple-gfx-pci.rom'` | qemu-mos15 `origin/main` behind local. | `git -C /Users/mjackson/qemu-mos15 push`; re-run Step 2. |
+| `cp: cannot stat '.../pc-bios/apple-gfx-pci.rom'` | qemu-mos15 `origin/main` behind local. | `git -C /Users/mjackson/Developer/qemu-mos15 push`; re-run Step 2. |
 | `C dependency libapplegfx-vulkan not found` | pkg-config name mismatch (library ships `applegfx-vulkan.pc`, overlay asks `libapplegfx-vulkan.pc`). | Add `filebase : 'libapplegfx-vulkan'` to `pkg.generate(...)` in libapplegfx-vulkan/meson.build, commit, push, retry. See dry-run §P0-2. |
 | `undefined reference to 'apple_gfx_create_task'` (or ~5 similar) at link | `static` modifier hiding shell callbacks from pci-linux.c. | Drop `static` on the six callbacks in `apple-gfx-common-linux.c`, forward-declare in `apple-gfx-linux.h`. Dry-run §P0-3. |
 | `implicit declaration of function 'trace_apple_gfx_pci_realize'` | Two trace events undefined. | Add two lines to `hw/display/trace-events` overlay, or delete the two `trace_apple_gfx_pci_*()` call sites. Dry-run §P0-4. |
@@ -336,8 +336,8 @@ viable bug report:
 ```bash
 # SHAs — proves which tree was actually built
 ssh "${DOCKER_HOST_SSH}" "git -C ${REPO_DIR} rev-parse HEAD"
-git -C /Users/mjackson/libapplegfx-vulkan rev-parse HEAD
-git -C /Users/mjackson/qemu-mos15         rev-parse HEAD
+git -C /Users/mjackson/Developer/libapplegfx-vulkan rev-parse HEAD
+git -C /Users/mjackson/Developer/qemu-mos15         rev-parse HEAD
 git -C /Users/mjackson/mos-opencore       rev-parse HEAD 2>/dev/null || echo n/a
 
 # compose logs + build log

@@ -12,8 +12,8 @@ cd /opt/macos
 #   1..          -> emit "-device apple-gfx-pci,gpu_cores=N"
 #   non-numeric, negative, or "host" -> warn, fall back to unset behavior
 #
-# Spec: /Users/mjackson/mos/paravirt-re/gpu-cores-implementation-spec.md
-# Curve: /Users/mjackson/mos/memory/project_tunable_gpu_cores.md
+# Spec: /Users/mjackson/Developer/mos/paravirt-re/gpu-cores-implementation-spec.md
+# Curve: /Users/mjackson/Developer/mos/memory/project_tunable_gpu_cores.md
 # ---------------------------------------------------------------------------
 GPU_CORES_RAW="${GPU_CORES:-0}"
 APPLE_GFX_DEVICE="-device apple-gfx-pci"
@@ -136,8 +136,8 @@ fi
 # its copy-on-map fallback — breaking Phase 2 guest-writable coherence
 # (CmdExecIndirect2 indirect buffer re-reads, etc.).
 #
-# Spec: /Users/mjackson/libapplegfx-vulkan/docs/memory-coherence-audit.md §4
-#       /Users/mjackson/mos/paravirt-re/phase-2-first-pixel-plan.md §8 item 4
+# Spec: /Users/mjackson/Developer/libapplegfx-vulkan/docs/memory-coherence-audit.md §4
+#       /Users/mjackson/Developer/mos/paravirt-re/phase-2-first-pixel-plan.md §8 item 4
 # ---------------------------------------------------------------------------
 RAM_GB="${RAM:-4}"
 RAM_MB_STR="${RAM_GB}000"   # legacy GB-ish scaling kept (16 GB -> "16000" MB)

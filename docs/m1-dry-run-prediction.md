@@ -11,13 +11,13 @@ lavapipe-backed Vulkan context reachable". Not "Metal works" — just
 "the stack is wired end to end and doesn't crash at boot".
 
 Inputs audited:
-- `/Users/mjackson/docker-macos/Dockerfile`
-- `/Users/mjackson/docker-macos/launch.sh`
-- `/Users/mjackson/docker-macos/docker-compose.yml`
-- `/Users/mjackson/docker-macos/docs/qemu-mos15-build.md`
-- `/Users/mjackson/qemu-mos15/hw/display/*` (local and at origin/main)
-- `/Users/mjackson/qemu-mos15/pc-bios/meson.build` (local only — unpushed)
-- `/Users/mjackson/libapplegfx-vulkan/meson.build` + `src/**`
+- `/Users/mjackson/Developer/docker-macos/Dockerfile`
+- `/Users/mjackson/Developer/docker-macos/launch.sh`
+- `/Users/mjackson/Developer/docker-macos/docker-compose.yml`
+- `/Users/mjackson/Developer/docker-macos/docs/qemu-mos15-build.md`
+- `/Users/mjackson/Developer/qemu-mos15/hw/display/*` (local and at origin/main)
+- `/Users/mjackson/Developer/qemu-mos15/pc-bios/meson.build` (local only — unpushed)
+- `/Users/mjackson/Developer/libapplegfx-vulkan/meson.build` + `src/**`
   (local and at origin/main)
 
 ## 1. Bottom-line
@@ -130,16 +130,16 @@ build` attempt. P1 can be deferred but will bite fast.
 ### P0 — must fix before pushing build
 
 **P0-1 — push both repos to origin/main.**
-- `git -C /Users/mjackson/libapplegfx-vulkan push` — pushes commits
+- `git -C /Users/mjackson/Developer/libapplegfx-vulkan push` — pushes commits
   up to `4d6eaf4` (adds Phase 1.A.1 scaffold, Phase 1.A.2 decoder,
   12-byte header fix, pkg.generate call).
-- `git -C /Users/mjackson/qemu-mos15 push` — pushes up to `09a0ba4`
+- `git -C /Users/mjackson/Developer/qemu-mos15 push` — pushes up to `09a0ba4`
   (adds real task API wiring, PC-BIOS ROM overlay, pci-linux.c with
   trace hooks).
 - Verifies rows B1–B4, C1–C3, D1, E1 all flip to "ok".
 
 **P0-2 — fix the pkg-config name mismatch.**
-Edit `/Users/mjackson/libapplegfx-vulkan/meson.build` L93–98 to add
+Edit `/Users/mjackson/Developer/libapplegfx-vulkan/meson.build` L93–98 to add
 the explicit filename override:
 ```meson
 pkg.generate(libapplegfx_vulkan,
@@ -158,7 +158,7 @@ file becomes `libapplegfx-vulkan.pc` aligning with project name and
 consumer expectation). Pick one and stay consistent.
 
 **P0-3 — drop `static` from the six shell callbacks** in
-`/Users/mjackson/qemu-mos15/hw/display/apple-gfx-common-linux.c`:
+`/Users/mjackson/Developer/qemu-mos15/hw/display/apple-gfx-common-linux.c`:
 ```
 L102: static lagfx_task_t * → lagfx_task_t *
 L135: static void           → void

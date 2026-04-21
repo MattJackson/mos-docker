@@ -59,7 +59,7 @@ METAL_PROBE="${METAL_PROBE:-/tmp/metal-probe}"
 SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes"
 
 # Default repo list. Edit REPOS env to override.
-DEFAULT_REPOS="/Users/mjackson/libapplegfx-vulkan:/Users/mjackson/qemu-mos15:/Users/mjackson/docker-macos:/Users/mjackson/mos:/Users/mjackson/mos-opencore"
+DEFAULT_REPOS="/Users/mjackson/Developer/libapplegfx-vulkan:/Users/mjackson/Developer/qemu-mos15:/Users/mjackson/Developer/docker-macos:/Users/mjackson/Developer/mos:/Users/mjackson/mos-opencore"
 REPOS="${REPOS:-$DEFAULT_REPOS}"
 
 RED=$(printf '\033[0;31m')

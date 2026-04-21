@@ -11,7 +11,7 @@ on the docker host.
 - `docs/test-runbook.md` — the M1..M8 milestone overview and the
   verify-*.sh inventory.
 - `docs/end-to-end-integration-guide.md` — why the pieces exist.
-- `/Users/mjackson/mos/paravirt-re/re-followup-spec-gaps.md` §1 —
+- `/Users/mjackson/Developer/mos/paravirt-re/re-followup-spec-gaps.md` §1 —
   doorbell spec that the capture tool references.
 
 ---

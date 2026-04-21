@@ -199,8 +199,8 @@ the library logs a loud degraded-coherence warning, and all guest→host DMA
 ranges go through a one-shot `memcpy` at map time. That's OK for Phase 1
 (empty command buffers) but silently breaks Phase 2's `CmdExecIndirect2`
 indirect-buffer re-reads — see
-`/Users/mjackson/libapplegfx-vulkan/docs/memory-coherence-audit.md` and
-`/Users/mjackson/mos/paravirt-re/phase-2-first-pixel-plan.md` §8 item 4.
+`/Users/mjackson/Developer/libapplegfx-vulkan/docs/memory-coherence-audit.md` and
+`/Users/mjackson/Developer/mos/paravirt-re/phase-2-first-pixel-plan.md` §8 item 4.
 
 Alpine's musl QEMU supports `memory-backend-memfd` (it just uses
 `memfd_create(2)`, which is a kernel syscall, not a glibc feature), so no

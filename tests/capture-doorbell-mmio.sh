@@ -4,7 +4,7 @@
 # offset in {0x1004, 0x1008, 0x1010, 0x101c, 0x1020, 0x1024, 0x1028,
 # 0x1030, 0x1034} is the ring write-pointer doorbell (setFifoWritten:).
 #
-# Spec: /Users/mjackson/mos/paravirt-re/re-followup-spec-gaps.md §1.5
+# Spec: /Users/mjackson/Developer/mos/paravirt-re/re-followup-spec-gaps.md §1.5
 #
 # Doorbell definition (per that spec): the MMIO offset whose value is
 # forwarded (not stored) during the first `MTLCreateSystemDefaultDevice`

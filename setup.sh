@@ -54,7 +54,7 @@ if [ "${FORCE}" = "1" ] || [ ! -e "${DISK_IMG}" ]; then
     log "Creating empty ${DISK_IMG} (launch.sh will size to ${DISK_SIZE} on first boot)"
     : >"${DISK_IMG}"
 else
-    size=$(stat -c%s "${DISK_IMG}" 2>/dev/null || echo 0)
+    size=$(stat -Lc%s "${DISK_IMG}" 2>/dev/null || echo 0)
     if [ "${size}" -lt 1048576 ]; then
         log "${DISK_IMG} exists and is ${size} bytes -- install mode on next boot"
     else
@@ -65,7 +65,7 @@ fi
 # ---------- recovery.img ---------------------------------------------------
 recovery_ok=0
 if [ -s "${RECOVERY_IMG}" ] && [ "${FORCE}" != "1" ]; then
-    size=$(stat -c%s "${RECOVERY_IMG}" 2>/dev/null || echo 0)
+    size=$(stat -Lc%s "${RECOVERY_IMG}" 2>/dev/null || echo 0)
     log "${RECOVERY_IMG} already present (${size} bytes) -- skipping"
     recovery_ok=1
 elif [ -n "${RECOVERY_URL}" ]; then
@@ -99,7 +99,7 @@ fi
 # ---------- opencore.img ---------------------------------------------------
 opencore_ok=0
 if [ -s "${OPENCORE_IMG}" ] && [ "${FORCE}" != "1" ]; then
-    size=$(stat -c%s "${OPENCORE_IMG}" 2>/dev/null || echo 0)
+    size=$(stat -Lc%s "${OPENCORE_IMG}" 2>/dev/null || echo 0)
     log "${OPENCORE_IMG} already present (${size} bytes) -- skipping"
     opencore_ok=1
 elif [ -n "${OPENCORE_SRC}" ]; then

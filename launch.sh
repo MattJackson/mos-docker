@@ -113,7 +113,7 @@ if [ -d "${IMAGE_PATH}" ]; then
     echo "  host-side file does not exist. Remove it, then run ./setup.sh." >&2
     exit 1
 fi
-CURRENT_SIZE=$(stat -c%s "${IMAGE_PATH}" 2>/dev/null || echo 0)
+CURRENT_SIZE=$(stat -Lc%s "${IMAGE_PATH}" 2>/dev/null || echo 0)
 if [ "${CURRENT_SIZE}" -lt 1048576 ]; then
     echo "Empty disk (${CURRENT_SIZE} bytes) -- install mode"
     qemu-img create -f raw "${IMAGE_PATH}" "${DISK_SIZE:-256G}"

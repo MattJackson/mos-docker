@@ -92,6 +92,10 @@ COPY sequoia_recovery.img /opt/macos/recovery.img
 # 3. QEMU binaries (changes only when QEMU version or patches change)
 COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
 COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
+# libapplegfx-vulkan shared library — QEMU binary is linked against it at
+# /usr/lib/libapplegfx-vulkan.so.0. Copy the SONAME + the versioned file so
+# the runtime loader resolves the link.
+COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
 
 # 4. Clean OVMF_VARS template for NVRAM reset (changes only when ovmf package updates)

@@ -15,6 +15,15 @@ kexts/deps/
 kexts/*/build/
 oc-check.bin
 
+# Per-deployment runtime artifacts staged by ./setup.sh. Operator-supplied,
+# large (disk.img up to ~256 GB, recovery.img ~3 GB, opencore.img ~512 MB).
+# Staging instructions live in volumes/README.md.
+volumes/*.img
+volumes/*.qcow2
+# Operator-local boot outputs — per-boot serial logs + QEMU HMP/QMP sockets.
+logs/
+run/
+
 # Private working notes — live in private gitea (pq/mos)
 .claude/
 DISCOVERY.md

@@ -7,15 +7,22 @@
 #
 # OpenCore: vanilla acidanthera/OpenCorePkg 1.0.7 (see OPENCORE_VERSION below).
 # The OpenCore EFI binaries (OpenCore.efi, BOOTx64.efi, Drivers/, Resources/) and
-# the assembled bootable OpenCore.img live in the build context — they are extracted
-# from the upstream release, NOT built from a fork. The retired mos-opencore fork
-# is now upstream-PR staging only; nothing in this image depends on it.
+# the assembled bootable OpenCore.img are produced by ./build-mos15-img.sh on a
+# macOS host — they are extracted from the upstream release, NOT built from a
+# fork. The retired mos-opencore fork is now upstream-PR staging only; nothing
+# in this image depends on it.
 #
-# IMPORTANT — required files in the build context (this directory):
-#   - sequoia_recovery.img   ← Apple recovery image, ~3.2 GB. See SETUP.md step 2.
-#   - OpenCore.img           ← Bootable EFI image. Run ./build-mos15-img.sh && cp mos15.img OpenCore.img
+# Per-deployment artifacts are NOT baked into the image. Runtime bind-mounts
+# deliver them from the host's ./volumes/ directory (see docker-compose.yml
+# and volumes/README.md):
+#   - ./volumes/disk.img       -> /image                       (macOS install/runtime disk)
+#   - ./volumes/recovery.img   -> /opt/macos/recovery.img      (Apple recovery image)
+#   - ./volumes/opencore.img   -> /opt/macos/OpenCore.img      (bootable EFI image)
 #
-# Without these the build fails with "COPY failed: file not found".
+# Rationale: these are large (~3 GB recovery, 512 MB opencore, 256 GB disk)
+# and change on a per-deployment cadence. Rebuilding the container image when
+# swapping an opencore build is wasted work. ./setup.sh stages them from the
+# host side.
 
 # Pinned upstream versions. Bump + rebuild to upgrade.
 ARG QEMU_VERSION=10.2.2
@@ -81,30 +88,29 @@ RUN apk add --no-cache \
     vulkan-loader mesa-vulkan-swrast \
     socat
 
-# 1b. Boot-diagnostics directories. launch.sh also mkdir -p's these (safe for
-# bind-mounted host volumes), but pre-creating keeps the image self-contained
-# when run without the compose volume mounts.
-RUN mkdir -p /data/logs /data/run
+# 1b. Boot-diagnostics directories + stub mount points for the runtime
+# bind-mounts. launch.sh re-creates /data/{logs,run} (safe for bind mounts),
+# and the /opt/macos/{OpenCore.img,recovery.img} stubs exist only so docker's
+# "auto-create-parent-dir" behaviour doesn't surprise us if the operator
+# forgets a volume mount — launch.sh will then detect the zero-byte file and
+# print a clear error.
+RUN mkdir -p /data/logs /data/run /opt/macos
 
-# 2. Recovery image (3.2GB, never changes after initial download)
-COPY sequoia_recovery.img /opt/macos/recovery.img
-
-# 3. QEMU binaries (changes only when QEMU version or patches change)
+# 2. QEMU binaries (changes only when QEMU version or patches change)
 COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
 COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
-# libapplegfx-vulkan shared library — QEMU binary is linked against it at
+# libapplegfx-vulkan shared library -- QEMU binary is linked against it at
 # /usr/lib/libapplegfx-vulkan.so.0. Copy the SONAME + the versioned file so
 # the runtime loader resolves the link.
 COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
 
-# 4. Clean OVMF_VARS template for NVRAM reset (changes only when ovmf package updates)
+# 3. Clean OVMF_VARS template for NVRAM reset (changes only when ovmf package updates)
 RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd
 
-# 5. OpenCore bootdisk (changes when kexts/config change)
-COPY OpenCore.img /opt/macos/OpenCore.img
-
-# 6. Launch script (changes most often)
+# 4. Launch script (changes most often). Baked in; overridable at runtime via
+# a bind-mount only if the operator really wants to, but the compose file
+# does not bind-mount it by default -- see docker-compose.yml rationale.
 COPY launch.sh /opt/macos/launch.sh
 RUN chmod +x /opt/macos/launch.sh
 

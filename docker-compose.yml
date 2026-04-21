@@ -4,8 +4,12 @@ services:
     restart: unless-stopped
     privileged: true                       # required for /dev/kvm + macvtap
     environment:
-      - IMAGE_PATH=/image                  # path inside the container; bind-mount below maps it to host
-      - HOST_IFACE=eth0                    # CHANGE ME — your host network interface (find with `ip addr show`)
+      - IMAGE_PATH=/image                  # in-container path for the macOS disk (bind-mounted below)
+      # HOST_IFACE: if unset, launch.sh auto-detects the first UP non-virtual
+      # NIC (skipping lo, docker0, br-*, veth*, macvtap*, virbr*, tailscale*).
+      # Set this explicitly only on multi-NIC hosts where the default pick
+      # isn't the right one. Find candidates with `ip -br link show`.
+      - HOST_IFACE=${HOST_IFACE:-}
       - RAM=16                             # GB. Install needs 24 minimum; steady-state 16 is comfortable.
                                            # Guest RAM is wired via -object memory-backend-memfd,share=on
                                            # (see launch.sh). Required for the apple-gfx-pci paravirt GPU to
@@ -13,9 +17,9 @@ services:
                                            # libapplegfx-vulkan/docs/memory-coherence-audit.md.
       - SMP=16                             # vCPU sockets/threads
       - CORES=16                           # vCPU cores per socket
-      - DISK_SIZE=256G                     # Created on first launch if mac_hdd_ng.img is empty
+      - DISK_SIZE=256G                     # Created on first launch if volumes/disk.img is empty
       - VGAMEM_MB=512                      # VMware SVGA framebuffer VRAM. Device-side max is 512 MB; higher requests are silently capped.
-      # GPU_CORES — per-VM lavapipe worker-thread budget for the apple-gfx-pci display path.
+      # GPU_CORES -- per-VM lavapipe worker-thread budget for the apple-gfx-pci display path.
       #   0 (default)  : unset; lavapipe picks host core count.
       #   1..64        : pin lavapipe's LP_NUM_THREADS to this value via
       #                  `-device apple-gfx-pci,gpu_cores=N`.
@@ -28,10 +32,13 @@ services:
       - LOG_DIR=/data/logs                 # Where launch.sh writes per-boot serial logs. Host path: ./logs/
       - RUN_DIR=/data/run                  # Where launch.sh binds the HMP + QMP unix sockets. Host path: ./run/
     volumes:
-      - ./mac_hdd_ng.img:/image            # The macOS install/runtime disk. Touch this file empty to trigger install mode.
-      - ./launch.sh:/opt/macos/launch.sh:ro  # Source-of-truth launch.sh from this repo; lets env vars actually apply
-      - ./logs:/data/logs                  # Per-boot serial logs (serial-YYYYMMDD-HHMMSS.log). Read by tests/capture-boot-log.sh.
-      - ./run:/data/run                    # QEMU HMP + QMP unix sockets. From host: socat - unix:$(pwd)/run/qemu-monitor.sock
+      # Per-deployment artifacts staged by ./setup.sh into ./volumes/. See
+      # volumes/README.md for how to produce each one and expected sizes.
+      - ./volumes/disk.img:/image                            # macOS install/runtime disk (empty = install mode)
+      - ./volumes/recovery.img:/opt/macos/recovery.img:ro    # Apple recovery image, ~3 GB
+      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro    # Bootable EFI image from build-mos15-img.sh
+      - ./logs:/data/logs                                    # Per-boot serial logs (serial-YYYYMMDD-HHMMSS.log)
+      - ./run:/data/run                                      # QEMU HMP + QMP unix sockets
     network_mode: host                     # macvtap bridge needs host networking
 
   novnc:

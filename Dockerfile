@@ -106,6 +106,7 @@ RUN --mount=type=cache,target=/root/.ccache \
     && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
     && cd /tmp/libapplegfx-vulkan \
     && meson setup --prefix=/usr --libdir=lib /tmp/libapplegfx-vulkan-build \
+    && ninja -C /tmp/libapplegfx-vulkan-build libapplegfx_vulkan \
     && ninja -C /tmp/libapplegfx-vulkan-build install
 
 # ---------------------------------------------------------------------------

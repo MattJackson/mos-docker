@@ -101,13 +101,11 @@ RUN printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\n' \
 
 ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
 RUN --mount=type=cache,target=/root/.ccache \
-    --mount=type=cache,target=/tmp/libapplegfx-vulkan-build \
     mkdir -p /tmp/libapplegfx-vulkan \
     && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
     && cd /tmp/libapplegfx-vulkan \
-    && meson setup --prefix=/usr --libdir=lib /tmp/libapplegfx-vulkan-build \
-    && ninja -C /tmp/libapplegfx-vulkan-build libapplegfx_vulkan \
-    && ninja -C /tmp/libapplegfx-vulkan-build install
+    && meson setup --prefix=/usr --libdir=lib -Dtests=false /tmp/lagfx-build \
+    && ninja -C /tmp/lagfx-build install
 
 # ---------------------------------------------------------------------------
 # QEMU 10.2.2 upstream — pinned, so this ADD effectively never invalidates

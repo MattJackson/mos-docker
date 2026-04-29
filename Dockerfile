@@ -91,11 +91,13 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
 # so a push to libapplegfx-vulkan invalidates this (and only this, plus
 # anything downstream that consumes its output).
 # ---------------------------------------------------------------------------
-# Alpine's vulkan-loader package ships libvulkan.so but NOT vulkan.pc, so
-# meson's dependency('vulkan') fails silently and the library builds without
-# GPU support. Synthesize a minimal .pc so meson finds it.
-RUN printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -lvulkan\n' \
-    > /usr/lib/pkgconfig/vulkan.pc
+# Alpine's vulkan-loader package ships libvulkan.so.1 but NOT vulkan.pc (or
+# the libvulkan.so symlink needed for -lvulkan linking). Synthesize both so
+# meson finds Vulkan and the linker can link against it.
+RUN printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\n' \
+        'Libs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
+    > /usr/lib/pkgconfig/vulkan.pc \
+    && ln -sf libvulkan.so.1 /usr/lib/libvulkan.so
 
 ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
 RUN --mount=type=cache,target=/root/.ccache \

@@ -94,8 +94,8 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
 # Alpine's vulkan-loader package ships libvulkan.so.1 but NOT vulkan.pc (or
 # the libvulkan.so symlink needed for -lvulkan linking). Synthesize both so
 # meson finds Vulkan and the linker can link against it.
-RUN printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\n' \
-        'Libs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
+RUN mkdir -p /usr/lib/pkgconfig \
+    && printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
     > /usr/lib/pkgconfig/vulkan.pc \
     && ln -sf libvulkan.so.1 /usr/lib/libvulkan.so
 

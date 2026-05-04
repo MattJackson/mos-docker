@@ -1,3 +1,5 @@
 - [Docker macOS state](project_docker_macos.md) — Lilu plugin patches IONDRVFramebuffer; needs Xcode-built Lilu fix
 - [Workflow rules](feedback_docker_macos.md) — one change at a time, stop VM before scp, no /tmp, DISCOVERY.md every finding
 - [No broad sed](feedback_no_broad_sed.md) — edit files individually with targeted changes
+- [Unattended is the default](feedback_unattended_default.md) — parallel agents OK; ask only for crucial decisions
+- [Keep CLAUDE.md + memory current](feedback_keep_memory_current.md) — refresh after every milestone; no catch-up tax

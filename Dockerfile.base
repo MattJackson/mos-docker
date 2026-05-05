@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1.7
+# mos-docker — Dockerfile.base
+# https://github.com/MattJackson/mos-docker
+#
+# Foundation layer for the phased regression chain:
+#   base → phase0 → phase1 → phase2 → phase3 → phase4 (= production)
+#
+# Each subsequent phase adds exactly one variable. Phase 4 IS production.
+#
+# This base image: alpine + upstream-vanilla QEMU 10.2.2 (NO mos15 patches)
+# + websockify/novnc + OVMF firmware + boot-diagnostics directories. Both
+# Phase 0 and Phase 1 use this OEM binary; Phase 2 swaps it for a patched
+# build via COPY-over.
+
+ARG QEMU_VERSION=10.2.2
+
+FROM alpine:3.21 AS oem-builder
+ARG QEMU_VERSION
+
+RUN apk add --no-cache \
+    build-base python3 ninja meson pkgconf \
+    glib-dev pixman-dev libcap-ng-dev libseccomp-dev \
+    libslirp-dev libaio-dev curl bash dtc-dev \
+    ccache
+
+ENV PATH="/usr/lib/ccache/bin:${PATH}" \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=2G \
+    CCACHE_BASEDIR=/tmp \
+    CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_macro,locale,pch_defines \
+    CCACHE_COMPILERCHECK=content \
+    CCACHE_NOHASHDIR=1
+
+ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
+
+RUN --mount=type=cache,target=/root/.ccache \
+    --mount=type=cache,target=/tmp/qemu-build \
+    rm -rf /tmp/qemu-${QEMU_VERSION} \
+    && tar xJ -C /tmp -f /tmp/qemu-upstream.tar.xz \
+    && cd /tmp/qemu-build \
+    && /tmp/qemu-${QEMU_VERSION}/configure \
+        --target-list=x86_64-softmmu \
+        --prefix=/usr \
+        --enable-kvm \
+        --enable-slirp \
+        --enable-linux-aio \
+        --enable-cap-ng \
+        --enable-seccomp \
+        --enable-vnc \
+        --disable-docs \
+        --disable-debug-info \
+        --disable-werror \
+    && make -j$(nproc) \
+    && make DESTDIR=/tmp/qemu-install install \
+    && ccache -s || true
+
+FROM alpine:3.21
+
+# Runtime deps + bundled noVNC.
+RUN apk add --no-cache \
+    glib pixman libcap-ng libseccomp libslirp \
+    libaio libbz2 dtc bash iproute2 ovmf \
+    socat \
+    py3-websockify novnc
+
+RUN mkdir -p /data/logs /data/run /opt/macos
+
+# OEM upstream-vanilla QEMU 10.2.2 — no mos15 patches.
+COPY --from=oem-builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
+COPY --from=oem-builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
+COPY --from=oem-builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
+
+RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd
+
+WORKDIR /opt/macos
+
+ENV RAM=4 SMP=4 CORES=4 \
+    LOG_DIR=/data/logs RUN_DIR=/data/run
+
+# No CMD — phase Dockerfiles set their own launcher and ports.

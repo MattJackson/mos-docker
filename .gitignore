@@ -27,3 +27,15 @@ run/
 # Private working notes — live in private gitea (pq/mos)
 .claude/
 DISCOVERY.md
+
+# Local QEMU/libapplegfx-vulkan source/build trees (downloaded by build-phases
+# Dockerfiles, but never committed). Multi-GB; recreated on `docker build`.
+qemu-10.2.2*/
+qemu-build/
+qemu-*.tar.*
+mos-qemu*/
+libapplegfx-vulkan*/
+
+# Agent scratch / archive directories
+_archive_*/
+scripts/__pycache__/

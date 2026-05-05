@@ -1,0 +1,34 @@
+# Phase 1 — OEM 10.2.2 + OpenCore EFI on disk + macOS image.
+# Prereq: mos-docker-phase0:latest must exist (`scripts/build-phases.sh 1`).
+services:
+  macos-phase-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.phase1
+    image: mos-docker-phase1:latest
+    container_name: mos-docker-phase-1
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    restart: "no"
+    volumes:
+      - ./volumes/disk.img:/image
+      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro
+      - ./volumes/recovery.img:/opt/macos/recovery.img:ro
+      - ./logs:/data/logs
+      - ./run:/data/run
+    environment:
+      - LOG_DIR=/data/logs
+      - RUN_DIR=/data/run
+      - NOVNC_PORT=6081
+      - VNC_PORT=5901
+      - SSH_PORT=22221
+      - RAM=8
+      - SMP=4
+      - CORES=4
+      - IMAGE_PATH=/image
+      - OPENCORE_IMG=/opt/macos/OpenCore.img
+      - DISK_SIZE=256G

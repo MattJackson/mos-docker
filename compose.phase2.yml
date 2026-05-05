@@ -1,0 +1,36 @@
+# Phase 2 — mos15-patched QEMU + OpenCore + macOS (no Apple identity).
+# Prereq: mos-docker-phase1:latest must exist.
+# Build of this phase compiles the patched QEMU binary in a multi-stage
+# build (~3-5 min cold, ~30s warm with ccache).
+services:
+  macos-phase-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.phase2
+    image: mos-docker-phase2:latest
+    container_name: mos-docker-phase-2
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    restart: "no"
+    volumes:
+      - ./volumes/disk.img:/image
+      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro
+      - ./volumes/recovery.img:/opt/macos/recovery.img:ro
+      - ./logs:/data/logs
+      - ./run:/data/run
+    environment:
+      - LOG_DIR=/data/logs
+      - RUN_DIR=/data/run
+      - NOVNC_PORT=6082
+      - VNC_PORT=5902
+      - SSH_PORT=22222
+      - RAM=8
+      - SMP=4
+      - CORES=4
+      - IMAGE_PATH=/image
+      - OPENCORE_IMG=/opt/macos/OpenCore.img
+      - DISK_SIZE=256G

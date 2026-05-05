@@ -1,0 +1,5 @@
+# Transient captures regenerated each run — don't commit.
+phase-*-current.png
+phase-*-diff.png
+phase-*-current.ppm
+*.tmp

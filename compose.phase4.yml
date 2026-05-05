@@ -1,0 +1,44 @@
+# Phase 4 — apple-gfx-pci paravirt GPU (= production stack).
+# Prereq: mos-docker-phase3:latest must exist.
+# This phase uses the production launch.sh — vga none + apple-gfx-pci as
+# console 0, memfd memory backend, macvtap bridge networking. Phase 4 IS
+# what `docker-compose.yml` runs; this file just exposes Phase 4 on a test
+# port (6084) so it can run alongside production without conflict.
+#
+# Expected outcome: BLACK SCREEN (libapplegfx-vulkan opcode handlers
+# unimplemented). Phase 5 is "implement opcodes" — same image, no docker
+# changes.
+services:
+  macos-phase-4:
+    build:
+      context: .
+      dockerfile: Dockerfile.phase4
+    image: mos-docker-phase4:latest
+    container_name: mos-docker-phase-4
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    restart: "no"
+    volumes:
+      - ./volumes/disk.img:/image
+      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro
+      - ./volumes/recovery.img:/opt/macos/recovery.img:ro
+      - ./logs:/data/logs
+      - ./run:/data/run
+    environment:
+      - HOST_IFACE=${HOST_IFACE:-}
+      - LOG_DIR=/data/logs
+      - RUN_DIR=/data/run
+      - NOVNC_PORT=6084
+      - VNC_PORT=5904
+      - SSH_PORT=22224
+      - RAM=16
+      - SMP=16
+      - CORES=16
+      - VGAMEM_MB=512
+      - GPU_CORES=8
+      - IMAGE_PATH=/image
+      - DISK_SIZE=256G

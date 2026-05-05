@@ -1,0 +1,28 @@
+# Phase 0 — Vanilla VNC sanity check.
+# Build: docker compose -f compose.phase0.yml build
+# Run:   docker compose -f compose.phase0.yml up -d
+# Test:  noVNC at http://<host>:6080/vnc.html?autoconnect=1 → UEFI shell
+services:
+  macos-phase-0:
+    build:
+      context: .
+      dockerfile: Dockerfile.phase0
+    image: mos-docker-phase0:latest
+    container_name: mos-docker-phase-0
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    restart: "no"
+    volumes:
+      - ./logs:/data/logs
+      - ./run:/data/run
+    environment:
+      - LOG_DIR=/data/logs
+      - RUN_DIR=/data/run
+      - NOVNC_PORT=6080
+      - VNC_PORT=5900
+      - RAM=2
+      - SMP=2

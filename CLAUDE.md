@@ -1,73 +1,103 @@
-# docker-macos
+# mos-docker
 
-macOS VM running in Docker on a classed Linux host. QEMU/KVM with
-OpenCore. Used to build and test the macOS IOKit transport layer of
-the freemkv ecosystem and to keep a clean macOS environment outside
-the daily-driver Mac.
+macOS VM in Docker on classe (Dell R730) for the mos paravirt-GPU project.
+QEMU/KVM + OpenCore + libapplegfx-vulkan.
 
 ## Read this first
 
-`memory/MEMORY.md` is the index of evergreen project facts and
-standing rules. Treat dated logs in `memory/history/` as historical
-only. Conventions in `memory/README.md`.
+`memory/MEMORY.md` is the index of evergreen project facts and standing
+rules. Dated logs in `memory/history/` are historical only.
 
-## Layout
+## Layout — phased regression chain
 
-- `Dockerfile`, `docker-compose.yml` — build + run definition
-- `efi/` — OpenCore EFI partition (ProperTree-edited config.plist)
-- `kexts/` — Lilu, VirtualSMC, QEMUDisplay, QEMUDisplayPatcher
-- `volumes/` — VM disk image + persistent state
-- `build-mos15-img.sh`, `setup.sh`, `launch.sh`, `deploy.sh` — scripts
-- `docs/`, `DISCOVERY.md` — running notebook of what works/doesn't
-- `tests/`, `TESTING.md` — verification matrix
-- `release-docker-macos.md` — release notes / changelog
+Each phase image inherits from the previous. Phase 4 IS production.
 
-## Current state
+| File | Adds vs previous |
+|---|---|
+| `Dockerfile.base` | alpine + OEM (unpatched) QEMU 10.2.2 + websockify/novnc + OVMF |
+| `Dockerfile.phase0` | `launch_phase0.sh` (vanilla VNC test — empty disk + UEFI shell) |
+| `Dockerfile.phase1` | `launch_phase1.sh` (mac_hdd_ng.img + OpenCore EFI on disk; OEM QEMU still) |
+| `Dockerfile.phase2` | mos15-patched QEMU binary (applesmc/dev-hid/vmware_vga/apple-gfx-pci-linux) + `launch_phase2.sh` |
+| `Dockerfile.phase3` | `launch_phase3.sh` adds `-device isa-applesmc` + apple-kbd/apple-tablet (Apple identity) |
+| `Dockerfile.phase4` | libapplegfx-vulkan.so + production `launch.sh` (vga none + apple-gfx-pci as console 0). **Phase 4 = production.** |
+| `Dockerfile.screenshot` | Removable test-only sidecar (chromium + xvfb) for visual regression capture |
 
-See `memory/project_docker_macos.md`. Lilu plugin approach
-(QEMUDisplayPatcher) routes IONDRVFramebuffer methods. EDID + gamma
-work when hooks fire. Two open blockers:
+## Build + run
 
-1. **Consistency (~60% of boots)** — needs Lilu source patched + built
-   with Xcode (manual clang build crashes).
-2. **Trampoline crash on `orgEnableController`** — workaround returns
-   0, skipping OEM NDRV init; display works via VGA fallback.
+```sh
+# First time after clone, or after any phase Dockerfile change:
+scripts/build-phases.sh           # builds base → phase0 → ... → phase4
+
+# Production (= Phase 4):
+docker compose up -d              # uses docker-compose.yml on port 6080
+
+# Phased regression (each in its own port + container — no conflict with prod):
+docker compose -f compose.phase0.yml up -d   # vanilla VNC test, port 6080
+docker compose -f compose.phase1.yml up -d   # OpenCore picker,    port 6081
+docker compose -f compose.phase2.yml up -d   # patched QEMU,       port 6082
+docker compose -f compose.phase3.yml up -d   # +Apple identity,    port 6083
+docker compose -f compose.phase4.yml up -d   # +apple-gfx-pci,     port 6084
+
+# Phased regression with screenshot capture overlay:
+PHASE=N docker compose -f compose.phaseN.yml -f compose.screenshot.yml up -d
+
+# Capture + diff (laptop side):
+scripts/capture-screenshot.sh N    # scp current PNG from classe to ./baselines/
+scripts/compare-regression.sh N    # ImageMagick perceptual diff vs gold
+```
+
+## 100% dev on laptop — classe is pull-only
+
+Every edit happens in this laptop checkout → commit → push → ssh classe
+→ `git pull` → `scripts/build-phases.sh` (or `docker compose build`).
+
+NEVER `ssh docker '... mv ...'`, `vim`, `cat > file`, `sed -i`, or
+`git commit` on classe. Inspection, deploy invocation, log capture are
+fine. If a laptop clone goes missing, **re-clone before doing
+anything**.
+
+This rule cost us ~30 dirty files of nearly-lost agent work on
+2026-05-05.
 
 ## Workflow rules
 
-See `memory/feedback_docker_macos.md`. The big ones:
+- **One variable at a time.** Each phase adds exactly one. If you can't
+  describe the delta in one sentence, the phase is too big — split it.
+- **Stop the VM before mutating bind-mounted artifacts.** QEMU holds
+  `volumes/disk.img`, `volumes/opencore.img`, etc. open. scp/cp into
+  them while running corrupts checksums.
+- **Don't bake test infrastructure into production.**
+  `compose.screenshot.yml` is REMOVABLE — production `docker-compose.yml`
+  doesn't include it. If a screenshot dep ends up in `Dockerfile.phaseN`,
+  back it out into `Dockerfile.screenshot`.
+- **Bootstrap golds with eyes-on inspection** before committing them.
+  A wrong gold encodes a bug as "expected".
+- **No `Co-Authored-By: Claude`** (or any AI attribution) in commits.
 
-- **One change at a time.** Change → test → prove → document → next.
-- **Stop the VM before scp'ing OpenCore/kexts.** QEMU holds files
-  open; scp while running corrupts checksums.
-- **No `/tmp` for compiled kexts.** Lost a VMsvga2 build that way.
-- **Document every finding in `DISCOVERY.md`** before the next change.
-- **No broad `sed`.** See `memory/feedback_no_broad_sed.md`.
+## Deploy cycle (laptop → classe)
 
-## Deploy cycle
+```sh
+# laptop:
+git -C ~/Developer/mos-docker add -A
+git -C ~/Developer/mos-docker commit -m "<msg>"
+git -C ~/Developer/mos-docker push
 
-```bash
-ssh docker 'docker stop mos-docker-macos-1'      # VM holds files open
-# rebuild kexts / edit config.plist locally
-scp -r efi/ docker:/path/to/volumes/efi/         # verify md5 after copy
-ssh docker 'docker start mos-docker-macos-1'
-ssh docker 'docker logs mos-docker-macos-1 -f'   # watch boot
+# classe:
+ssh docker '
+  cd /home/matthew/mos-docker
+  git pull
+  bash scripts/build-phases.sh    # rebuild affected phases
+  docker compose down
+  docker compose up -d
+'
 ```
 
 ## Where this fits
 
-- **Host:** classe (Dell R730), runs alongside the rest of the docker
-  stack. NOT in `pq/docker-server` — this repo is the analogous
-  out-of-stack project (cf. docker-server's "Outside the standard
-  layout" section).
-- **Code on Mac:** `/Users/mjackson/Developer/docker-macos/` (this repo).
-- **Memory:** `memory/` in this repo. Conventions: see
-  `/Users/mjackson/Developer/mos/memory/README.md`.
-
-## Conventions
-
-- Memory in `memory/`, in this repo, in git. Never under
-  `~/.claude/projects/`.
-- Use `git -C <path>` for cross-repo git ops; never
-  `cd <path> && git ...`.
-- No `Co-Authored-By: Claude` (or any AI attribution) in commits.
+- **Host:** classe (Dell R730 in basement). Sole datacenter.
+- **Laptop checkout:** `/Users/mjackson/Developer/mos-docker/` (this repo).
+- **Classe checkout:** `/home/matthew/mos-docker/`.
+- **Macos disk image:** `/data/macos/mac_hdd_ng.img` on classe (256 GB raw),
+  symlinked into `volumes/disk.img` by `setup.sh`.
+- **Memory:** `memory/` in this repo, in git. Conventions:
+  `~/Developer/mos/memory/README.md`.

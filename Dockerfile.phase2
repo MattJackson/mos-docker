@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1.7
+# Phase 2 — Swap OEM QEMU binary for mos15-patched build.
+# Inherits phase1. Adds: patched qemu-system-x86_64 (overlays
+# applesmc.c + dev-hid.c + vmware_vga.c + apple-gfx-pci-linux.c
+# from MattJackson/mos-qemu) + phase 2 launcher.
+# Pass: identical visual to Phase 1 (OpenCore picker), proves patches
+# don't regress the OpenCore stage. noVNC at port 6082.
+
+ARG QEMU_VERSION=10.2.2
+
+FROM alpine:3.21 AS mos15-builder
+ARG QEMU_VERSION
+
+RUN apk add --no-cache \
+    build-base python3 ninja meson pkgconf \
+    glib-dev pixman-dev libcap-ng-dev libseccomp-dev \
+    libslirp-dev libaio-dev curl bash dtc-dev \
+    mesa-vulkan-swrast vulkan-loader vulkan-headers \
+    ccache
+
+ENV PATH="/usr/lib/ccache/bin:${PATH}" \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=2G \
+    CCACHE_BASEDIR=/tmp \
+    CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_macro,locale,pch_defines \
+    CCACHE_COMPILERCHECK=content \
+    CCACHE_NOHASHDIR=1
+
+ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
+ADD https://github.com/MattJackson/mos-qemu/archive/refs/heads/main.tar.gz /tmp/mos-qemu.tar.gz
+
+RUN --mount=type=cache,target=/root/.ccache \
+    --mount=type=cache,target=/tmp/qemu-build \
+    rm -rf /tmp/qemu-${QEMU_VERSION} /tmp/mos-qemu \
+    && tar xJ -C /tmp -f /tmp/qemu-upstream.tar.xz \
+    && mkdir -p /tmp/mos-qemu \
+    && tar xz -C /tmp/mos-qemu --strip-components=1 -f /tmp/mos-qemu.tar.gz \
+    && cd /tmp/qemu-${QEMU_VERSION} \
+    && cp /tmp/mos-qemu/hw/misc/applesmc.c hw/misc/applesmc.c \
+    && cp /tmp/mos-qemu/hw/display/vmware_vga.c hw/display/vmware_vga.c \
+    && cp /tmp/mos-qemu/hw/usb/dev-hid.c hw/usb/dev-hid.c \
+    && cp /tmp/mos-qemu/hw/display/apple-gfx-pci-linux.c hw/display/ \
+    && cp /tmp/mos-qemu/hw/display/apple-gfx-common-linux.c hw/display/ \
+    && cp /tmp/mos-qemu/hw/display/apple-gfx-linux.h hw/display/ \
+    && cp /tmp/mos-qemu/hw/display/meson.build hw/display/meson.build \
+    && cp /tmp/mos-qemu/hw/display/trace-events hw/display/trace-events \
+    && cp /tmp/mos-qemu/hw/display/Kconfig hw/display/Kconfig \
+    && cp /tmp/mos-qemu/pc-bios/meson.build pc-bios/meson.build \
+    && cp /tmp/mos-qemu/pc-bios/apple-gfx-pci.rom pc-bios/apple-gfx-pci.rom \
+    && cd /tmp/qemu-build \
+    && /tmp/qemu-${QEMU_VERSION}/configure \
+        --target-list=x86_64-softmmu \
+        --prefix=/usr \
+        --enable-kvm \
+        --enable-slirp \
+        --enable-linux-aio \
+        --enable-cap-ng \
+        --enable-seccomp \
+        --enable-vnc \
+        --disable-docs \
+        --disable-debug-info \
+        --disable-werror \
+    && make -j$(nproc) \
+    && make DESTDIR=/tmp/qemu-install install \
+    && ccache -s || true
+
+FROM mos-docker-phase1:latest
+
+# Swap the OEM QEMU binary for the mos15-patched one. Same path, same
+# permissions — the only thing that changes between Phase 1 and Phase 2.
+# /usr/share/qemu/ COPY brings the apple-gfx-pci.rom (installed by `make
+# install` into the share dir).
+COPY --from=mos15-builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
+COPY --from=mos15-builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
+
+COPY launch_phase2.sh /opt/macos/launch_phase2.sh
+RUN chmod +x /opt/macos/launch_phase2.sh
+
+ENV NOVNC_PORT=6082 VNC_PORT=5902
+EXPOSE 6082
+
+CMD ["/opt/macos/launch_phase2.sh"]

@@ -1,62 +1,49 @@
+# Production = Phase 4 of the layered regression chain.
+# This file is for production runs. Phased regression tests use
+# compose.phase{0..4}.yml.
+#
+# First-time setup (after clone, after every push that changes the chain):
+#   scripts/build-phases.sh         # builds base → phase0 → ... → phase4
+#
+# Production run:
+#   docker compose up -d
+#
+# Phased test runs (separate from production):
+#   docker compose -f compose.phase0.yml up -d   # vanilla VNC test
+#   docker compose -f compose.phase1.yml up -d   # OpenCore-only
+#   ...
 services:
   macos:
-    build: .
+    image: mos-docker-phase4:latest
+    container_name: mos-docker-macos-1
     restart: unless-stopped
-    privileged: true                       # required for /dev/kvm + macvtap
-    environment:
-      - IMAGE_PATH=/image                  # in-container path for the macOS disk (bind-mounted below)
-      # HOST_IFACE: if unset, launch.sh auto-detects the first UP non-virtual
-      # NIC (skipping lo, docker0, br-*, veth*, macvtap*, virbr*, tailscale*).
-      # Set this explicitly only on multi-NIC hosts where the default pick
-      # isn't the right one. Find candidates with `ip -br link show`.
-      - HOST_IFACE=${HOST_IFACE:-}
-      - RAM=16                             # GB. Install needs 24 minimum; steady-state 16 is comfortable.
-                                           # Guest RAM is wired via -object memory-backend-memfd,share=on
-                                           # (see launch.sh). Required for the apple-gfx-pci paravirt GPU to
-                                           # alias guest pages into the host library's task VA. See
-                                           # libapplegfx-vulkan/docs/memory-coherence-audit.md.
-      - SMP=16                             # vCPU sockets/threads
-      - CORES=16                           # vCPU cores per socket
-      - DISK_SIZE=256G                     # Created on first launch if volumes/disk.img is empty
-      - VGAMEM_MB=512                      # VMware SVGA framebuffer VRAM. Device-side max is 512 MB; higher requests are silently capped.
-      # GPU_CORES -- per-VM lavapipe worker-thread budget for the apple-gfx-pci display path.
-      #   0 (default)  : unset; lavapipe picks host core count.
-      #   1..64        : pin lavapipe's LP_NUM_THREADS to this value via
-      #                  `-device apple-gfx-pci,gpu_cores=N`.
-      #   Examples: GPU_CORES=4 (low-end), GPU_CORES=8 (sweet spot, ~30fps @1080p),
-      #             GPU_CORES=16 (headroom).
-      #   Non-numeric / negative values are rejected by launch.sh (falls back to unset).
-      #   Measured scaling curve: mos/memory/project_tunable_gpu_cores.md
-      #   Device-side docs:      docs/qemu-mos15-build.md#tuning-gpu_cores-on-the-apple-gfx-pci-device
-      - GPU_CORES=${GPU_CORES:-0}
-      # libapplegfx-vulkan (host paravirt GPU library) M3 debugging knobs.
-      # All default to empty/0 — production leaves them unset. Set ad-hoc via
-      # shell env when iterating on stamp-page / MSI-X behavior.
-      # LAGFX_LOG_LEVEL controls decoder logging volume:
-      #   warn (default) — warnings + errors only; right for prod / runtime
-      #   info           — per-task / per-display lifecycle events
-      #   trace          — per-cmd / per-translate / per-MMIO (RE only)
-      # LAGFX_LOG=1 retained for back-compat (== info).
-      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
-      - LAGFX_STAMP_SLOT=${LAGFX_STAMP_SLOT:-0}   # 0..7: which stamp cell offset (id*4) in FIFO page 0
-      - LAGFX_IRQ_VECTOR=${LAGFX_IRQ_VECTOR:-0}   # 0..N-1: MSI-X vector to raise on command completion
-      - LAGFX_STAMP_VALUE=${LAGFX_STAMP_VALUE:-}  # override monotonic counter with constant; strtoul (e.g. 0xFFFFFFFF)
-      - LOG_DIR=/data/logs                 # Where launch.sh writes per-boot serial logs. Host path: ./logs/
-      - RUN_DIR=/data/run                  # Where launch.sh binds the HMP + QMP unix sockets. Host path: ./run/
-    volumes:
-      # Per-deployment artifacts staged by ./setup.sh into ./volumes/. See
-      # volumes/README.md for how to produce each one and expected sizes.
-      - ./volumes/disk.img:/image                            # macOS install/runtime disk (empty = install mode)
-      - ./volumes/recovery.img:/opt/macos/recovery.img:ro    # Apple recovery image, ~3 GB
-      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro    # Bootable EFI image from build-mos15-img.sh
-      - ./logs:/data/logs                                    # Per-boot serial logs (serial-YYYYMMDD-HHMMSS.log)
-      - ./run:/data/run                                      # QEMU HMP + QMP unix sockets
-    network_mode: host                     # macvtap bridge needs host networking
-
-  novnc:
-    image: geek1011/easy-novnc
-    restart: unless-stopped
-    command: --addr :6080 --host 127.0.0.1 --port 5901 --no-url-password
+    privileged: true                     # required for /dev/kvm + macvtap
     network_mode: host
-    depends_on:
-      - macos
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - HOST_IFACE=${HOST_IFACE:-}
+      - LOG_DIR=/data/logs
+      - RUN_DIR=/data/run
+      - NOVNC_PORT=6080
+      - VNC_PORT=5900
+      - SSH_PORT=22220
+      - RAM=16
+      - SMP=16
+      - CORES=16
+      - DISK_SIZE=256G
+      - VGAMEM_MB=512
+      - GPU_CORES=${GPU_CORES:-8}
+      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
+      - LAGFX_STAMP_SLOT=${LAGFX_STAMP_SLOT:-0}
+      - LAGFX_IRQ_VECTOR=${LAGFX_IRQ_VECTOR:-0}
+      - LAGFX_STAMP_VALUE=${LAGFX_STAMP_VALUE:-}
+      - IMAGE_PATH=/image
+    volumes:
+      - ./volumes/disk.img:/image
+      - ./volumes/recovery.img:/opt/macos/recovery.img:ro
+      - ./volumes/opencore.img:/opt/macos/OpenCore.img:ro
+      - ./logs:/data/logs
+      - ./run:/data/run

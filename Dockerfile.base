@@ -61,7 +61,7 @@ RUN apk add --no-cache \
     glib pixman libcap-ng libseccomp libslirp \
     libaio libbz2 dtc bash iproute2 ovmf \
     socat \
-    py3-websockify novnc
+    websockify novnc
 
 RUN mkdir -p /data/logs /data/run /opt/macos
 

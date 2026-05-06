@@ -102,7 +102,9 @@ fi
 # physical NIC, skipping virtual interfaces (lo, docker, br-, veth,
 # macvtap, virbr, tailscale).
 if [ -z "${HOST_IFACE:-}" ]; then
-    HOST_IFACE="$(ip -br link show 2>/dev/null | \
+    # awk's `exit` triggers SIGPIPE in `ip` -> `set -o pipefail` would kill
+    # the script. Disable pipefail just for this pipeline.
+    HOST_IFACE="$(set +o pipefail; ip -br link show 2>/dev/null | \
         awk '$1 !~ /^(lo|docker|br-|veth|macvtap|virbr|tailscale)/ && \
              $1 != "" && $2 == "UP" {print $1; exit}')"
 fi

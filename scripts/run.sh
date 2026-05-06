@@ -138,8 +138,8 @@ exec qemu-system-x86_64 \
     -machine q35,accel=kvm \
     -smp "${SMP:-4}",cores="${CORES:-4}" \
     -device qemu-xhci,id=xhci \
-    -device apple-kbd,bus=xhci.0 \
-    -device apple-tablet,bus=xhci.0 \
+    -device usb-kbd,bus=xhci.0 \
+    -device usb-tablet,bus=xhci.0 \
     -device 'isa-applesmc,osk=ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc' \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
     -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd \

@@ -5,24 +5,25 @@ Run macOS Sequoia in a Docker container on Linux + KVM. Two commands from a fres
 ```bash
 # 1. Install (one-time, interactive — connect to noVNC at http://localhost:6080)
 docker run -it --rm --privileged --device /dev/kvm -p 6080:6080 \
-  -v "$PWD/mos-data:/data" ghcr.io/mattjackson/mos-docker install
+  -v "$PWD/data:/data" ghcr.io/mattjackson/mos-docker install
 
 # 2. Run (daemon)
 docker run -d --privileged --device /dev/kvm -p 6080:6080 \
-  -v "$PWD/mos-data:/data" ghcr.io/mattjackson/mos-docker
+  -v "$PWD/data:/data" ghcr.io/mattjackson/mos-docker
 ```
 
-That's it. macOS persists in `./mos-data/disk.img` between runs.
+That's it. macOS persists in `./data/disk.img` between runs.
 
 > **Prerequisite:** before step 1, drop a macOS recovery image at
-> `./mos-data/recovery.img` and an OpenCore EFI image at
-> `./mos-data/OpenCore.img`. See [SETUP.md](SETUP.md) for how to acquire each.
+> `./data/recovery.img` and an OpenCore EFI image at
+> `./data/OpenCore.img`. See [SETUP.md](SETUP.md) for how to acquire each.
 > The container will print the exact instructions if either is missing.
 
 ## What you get
 
 - macOS Sequoia VM with KVM acceleration (≥30 fps @ 1080p on modern hardware)
-- Apple paravirtualized GPU (`apple-gfx-pci` device, lavapipe Vulkan backend) — see *Project status*
+- Default display: `-vga std` — works through OpenCore + recovery + post-install kernel
+- Optional Apple paravirtualized GPU (`apple-gfx-pci` device, lavapipe Vulkan backend) for testing the M5 path — disabled by default until libapplegfx-vulkan opcode handlers ship; opt in with `MOS_USE_APPLE_GFX_PCI=1`. See *Project status*.
 - noVNC web client at `http://localhost:6080/vnc.html?autoconnect=1`
 - Persistent `disk.img` survives container removal
 
@@ -50,11 +51,12 @@ For the milestones-met state today (a working paravirt GPU stack short of pixels
 ├── compose.test.yml    regression tests (`docker compose -f compose.test.yml ...`)
 ├── mos                 CLI wrapper (./mos install | run | test N | logs | stop)
 ├── scripts/
-│   ├── entrypoint.sh   dispatcher (run | install | test)
-│   ├── install.sh      install workflow
-│   ├── run.sh          production launcher
-│   ├── test.sh         regression test phase runner
-│   └── compare-regression.sh  ImageMagick perceptual diff
+│   ├── entrypoint.sh         dispatcher (run | install | test)
+│   ├── install.sh            install workflow
+│   ├── run.sh                production launcher
+│   ├── test.sh               regression test phase runner
+│   ├── capture-screenshot.sh laptop-side capture pull (used by test.sh)
+│   └── compare-regression.sh ImageMagick perceptual diff
 ├── baselines/          gold screenshots for regression tests
 ├── data/               (gitignored) disk.img, OpenCore.img, recovery.img, logs/
 ├── README.md           you are here

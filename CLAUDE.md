@@ -1,78 +1,78 @@
 # mos-docker
 
-macOS VM in Docker on classe (Dell R730) for the mos paravirt-GPU project.
-QEMU/KVM + OpenCore + libapplegfx-vulkan.
+macOS VM in Docker on Linux + KVM. Production runtime for the
+[mos](https://github.com/MattJackson/mos) paravirt-GPU project.
 
 ## Read this first
 
-`memory/MEMORY.md` is the index of evergreen project facts and standing
-rules. Dated logs in `memory/history/` are historical only.
+- `README.md` — 2-command quickstart for end users
+- `SETUP.md` — full first-time setup guide (recovery image acquisition,
+  OpenCore.img build, install workflow)
+- `memory/MEMORY.md` — index of evergreen project facts and standing rules
+- `docs/incidents/` — public post-mortems (read these before changing
+  anything destructive)
 
-## Layout — phased regression chain
+## Architecture
 
-Each phase image inherits from the previous. Phase 4 IS production.
+ONE production image, ONE test image, ONE entrypoint with three modes.
 
-| File | Adds vs previous |
-|---|---|
-| `Dockerfile.base` | alpine + OEM (unpatched) QEMU 10.2.2 + websockify/novnc + OVMF |
-| `Dockerfile.phase0` | `launch_phase0.sh` (vanilla VNC test — empty disk + UEFI shell) |
-| `Dockerfile.phase1` | `launch_phase1.sh` (mac_hdd_ng.img + OpenCore EFI on disk; OEM QEMU still) |
-| `Dockerfile.phase2` | mos15-patched QEMU binary (applesmc/dev-hid/vmware_vga/apple-gfx-pci-linux) + `launch_phase2.sh` |
-| `Dockerfile.phase3` | `launch_phase3.sh` adds `-device isa-applesmc` + apple-kbd/apple-tablet (Apple identity) |
-| `Dockerfile.phase4` | libapplegfx-vulkan.so + production `launch.sh` (vga none + apple-gfx-pci as console 0). **Phase 4 = production.** |
-| `Dockerfile.screenshot` | Removable test-only sidecar (chromium + xvfb) for visual regression capture |
-
-## Build + run
-
-```sh
-# First time after clone, or after any phase Dockerfile change:
-scripts/build-phases.sh           # builds base → phase0 → ... → phase4
-
-# Production (= Phase 4):
-docker compose up -d              # uses docker-compose.yml on port 6080
-
-# Phased regression (each in its own port + container — no conflict with prod):
-docker compose -f compose.phase0.yml up -d   # vanilla VNC test, port 6080
-docker compose -f compose.phase1.yml up -d   # OpenCore picker,    port 6081
-docker compose -f compose.phase2.yml up -d   # patched QEMU,       port 6082
-docker compose -f compose.phase3.yml up -d   # +Apple identity,    port 6083
-docker compose -f compose.phase4.yml up -d   # +apple-gfx-pci,     port 6084
-
-# Phased regression with screenshot capture overlay:
-PHASE=N docker compose -f compose.phaseN.yml -f compose.screenshot.yml up -d
-
-# Capture + diff (laptop side):
-scripts/capture-screenshot.sh N    # scp current PNG from classe to ./baselines/
-scripts/compare-regression.sh N    # ImageMagick perceptual diff vs gold
 ```
+Dockerfile          builds mos-docker:latest (production)
+Dockerfile.test     extends prod with OEM QEMU + chromium for regression tests
+compose.yml         docker compose up   (= production "run" mode)
+compose.test.yml    docker compose -f ... run --rm test 0..4
+
+scripts/
+  entrypoint.sh     dispatcher (run | install | test) — first-arg branching
+  install.sh        creates fresh disk + boots with recovery media
+  run.sh            production launcher, NEVER touches disk.img
+  test.sh           phase 0..4 regression runner (test image only)
+
+mos                 thin CLI wrapper — ./mos install | run | test N | logs
+```
+
+End-user flow (no clone needed, image pulled from registry):
+```sh
+docker run -it --rm --privileged --device /dev/kvm -p 6080:6080 \
+  -v "$PWD/mos-data:/data" ghcr.io/mattjackson/mos-docker install
+docker run -d --privileged --device /dev/kvm -p 6080:6080 \
+  -v "$PWD/mos-data:/data" ghcr.io/mattjackson/mos-docker
+```
+
+## Safety guarantees (encoded in code, NOT just convention)
+
+- `run.sh` (production) **never** calls `qemu-img create` on the data
+  disk. The destructive code path doesn't exist in production. Period.
+- `install.sh` refuses to overwrite an existing `disk.img >1 MiB`.
+  Operator must `rm` it manually first — that's the consent gesture.
+- `entrypoint.sh` validates `/dev/kvm` access + `/data` writability up
+  front; fails loud rather than racing into bad bind-mount state.
+
+These rules are direct lessons from `docs/incidents/2026-05-06-disk-wipe.md`.
+Don't undo them.
 
 ## 100% dev on laptop — classe is pull-only
 
 Every edit happens in this laptop checkout → commit → push → ssh classe
-→ `git pull` → `scripts/build-phases.sh` (or `docker compose build`).
+→ `git pull` → `./mos build` → `./mos run`.
 
 NEVER `ssh docker '... mv ...'`, `vim`, `cat > file`, `sed -i`, or
 `git commit` on classe. Inspection, deploy invocation, log capture are
 fine. If a laptop clone goes missing, **re-clone before doing
 anything**.
 
-This rule cost us ~30 dirty files of nearly-lost agent work on
-2026-05-05.
-
 ## Workflow rules
 
-- **One variable at a time.** Each phase adds exactly one. If you can't
-  describe the delta in one sentence, the phase is too big — split it.
-- **Stop the VM before mutating bind-mounted artifacts.** QEMU holds
-  `volumes/disk.img`, `volumes/opencore.img`, etc. open. scp/cp into
-  them while running corrupts checksums.
-- **Don't bake test infrastructure into production.**
-  `compose.screenshot.yml` is REMOVABLE — production `docker-compose.yml`
-  doesn't include it. If a screenshot dep ends up in `Dockerfile.phaseN`,
-  back it out into `Dockerfile.screenshot`.
-- **Bootstrap golds with eyes-on inspection** before committing them.
-  A wrong gold encodes a bug as "expected".
+- **Persistent state lives only in `/data/`.** Anything outside is
+  ephemeral and disposable. The only files that matter for
+  reproducibility are `data/disk.img`, `data/OpenCore.img`,
+  `data/recovery.img`.
+- **Stop the VM before mutating `data/disk.img` or `data/OpenCore.img`.**
+  QEMU holds these files open. Modifying them while running corrupts
+  checksums.
 - **No `Co-Authored-By: Claude`** (or any AI attribution) in commits.
+- **Public-consumption docs.** README + SETUP are written for someone
+  who's never seen this codebase. Don't add internal jargon to them.
 
 ## Deploy cycle (laptop → classe)
 
@@ -86,18 +86,43 @@ git -C ~/Developer/mos-docker push
 ssh docker '
   cd /home/matthew/mos-docker
   git pull
-  bash scripts/build-phases.sh    # rebuild affected phases
-  docker compose down
-  docker compose up -d
+  sudo ./mos build         # rebuild production image
+  sudo ./mos stop          # stop running container
+  sudo ./mos run           # start fresh
 '
 ```
+
+(`sudo` because the host user is not in the `docker` group on classe.
+Local-dev hosts where you ARE in the docker group can drop the `sudo`.)
 
 ## Where this fits
 
 - **Host:** classe (Dell R730 in basement). Sole datacenter.
 - **Laptop checkout:** `/Users/mjackson/Developer/mos-docker/` (this repo).
 - **Classe checkout:** `/home/matthew/mos-docker/`.
-- **Macos disk image:** `/data/macos/mac_hdd_ng.img` on classe (256 GB raw),
-  symlinked into `volumes/disk.img` by `setup.sh`.
-- **Memory:** `memory/` in this repo, in git. Conventions:
-  `~/Developer/mos/memory/README.md`.
+- **Persistent state on classe:** `/home/matthew/mos-docker/data/`,
+  containing the disk image (currently a symlink farm to `/data/macos/`).
+- **Memory:** `memory/` in this repo, in git. Cross-references at
+  `~/Developer/mos/memory/MEMORY.md`.
+
+## Regression testing (developer / contributor)
+
+The repo ships a 5-phase chain that bisects which component breaks
+display rendering on a working install:
+
+| Phase | Stack | Expected outcome |
+|---|---|---|
+| 0 | Vanilla QEMU + OVMF, empty disk | UEFI shell visible (sanity check) |
+| 1 | + OpenCore + macOS image (OEM unpatched QEMU) | OpenCore picker visible |
+| 2 | Same as 1 with patched QEMU binary | Same as Phase 1 (proves binary swap is benign) |
+| 3 | + Apple SMC + apple-kbd/tablet | macOS boots to login (if APFS unlocks) or same picker |
+| 4 | + apple-gfx-pci (= production) | Black screen until libapplegfx-vulkan opcode handlers ship (M5 stage 20%) |
+
+```sh
+./mos build-test            # build mos-docker:test
+./mos test 0                # capture phase 0
+./mos test 1                # ...etc through 4
+```
+
+Each phase opens noVNC on `http://localhost:608<phase>`. Compare what
+you see to `baselines/phase-<phase>-gold.png` for pass/fail.

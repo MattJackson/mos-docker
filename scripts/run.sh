@@ -67,16 +67,22 @@ if [ "${MOS_QEMU_BUNDLED_NOVNC:-0}" = "1" ]; then
 fi
 
 # --- Display device selection ----------------------------------------
-# Default: -vga std (Bochs/QEMU stdvga). Works with macOS recovery +
-# OpenCore picker + macOS post-install kernel via the linear framebuffer
-# hand-off. Reliable, renders everywhere.
+# Default: explicit -device VGA with synthesized EDID. The plain `-vga std`
+# default backs a smaller framebuffer than what OpenCore advertises during
+# boot, so noVNC ends up showing only the top-left quadrant of macOS's
+# render surface ("logo bottom-right" rendering quirk seen 2026-05-06).
+#
+# Specifying xres/yres + vgamem_mb tells std-vga to back the full
+# 1920x1080x4bpp framebuffer up front (default 16M is borderline; 64M gives
+# headroom for HiDPI / 2560x1600). edid=on synthesizes an EDID so macOS
+# reads the proper screen size + refresh rate instead of guessing.
 #
 # Apple paravirt GPU (`-vga none -device apple-gfx-pci`) is the future
 # production target but requires libapplegfx-vulkan opcode handlers
 # (M5 stage 20%) — until those land, the device renders nothing
 # (you see "Guest has not initialized the display"). Opt in with
 # MOS_USE_APPLE_GFX_PCI=1 only when you're testing the M5 path.
-DISPLAY_ARGS="-vga std"
+DISPLAY_ARGS="-device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on"
 MEM_BACKEND_ARGS=""
 RAM_GB="${RAM:-8}"
 if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then

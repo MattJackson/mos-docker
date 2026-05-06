@@ -99,14 +99,17 @@ COMMON_ARGS=(
     -qmp unix:"$QMP_SOCK",server,nowait
 )
 
-# Display device: phase 4 = apple-gfx-pci, others = std-vga.
+# Display device: phase 4 = apple-gfx-pci, others = explicit VGA + EDID.
+# Plain `-vga std` backs a smaller framebuffer than OpenCore advertises,
+# so noVNC sees only the top-left quadrant of macOS's render surface.
+# Specifying xres/yres + vgamem_mb + edid=on fixes that.
 if [ "$PHASE" = "4" ]; then
     COMMON_ARGS+=( -vga none -device apple-gfx-pci )
     # Memfd backend required for apple-gfx-pci coherence.
     COMMON_ARGS+=( -object "memory-backend-memfd,id=mem,size=${RAM:-4}G,share=on" )
     COMMON_ARGS+=( -global "ICH9-LPC.disable_s3=1" -global "ICH9-LPC.disable_s4=1" )
 else
-    COMMON_ARGS+=( -vga std )
+    COMMON_ARGS+=( -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on )
 fi
 
 # USB / Apple identity: phase 3+ = apple-*; otherwise = generic.

@@ -92,15 +92,23 @@ if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
     echo "  until libapplegfx-vulkan opcode handlers are implemented (M5)."
 fi
 
-# --- Networking: prefer user-mode unless HOST_IFACE+macvtap requested -
-NETDEV_ARGS="-netdev user,id=net0,hostfwd=tcp::${SSH_PORT:-22220}-:22 \
-             -device e1000-82545em,netdev=net0"
-if [ -n "${HOST_IFACE:-}" ]; then
-    if ! ip link show "$HOST_IFACE" >/dev/null 2>&1; then
-        echo "ERROR: HOST_IFACE='$HOST_IFACE' not found inside container." >&2
-        ip -br link show >&2
-        exit 1
-    fi
+# --- Networking: macvtap + virtio-net-pci (known-good for macOS) ------
+# macOS's recovery + production stack expects bridged networking with a
+# real LAN IP. user-mode (slirp) doesn't satisfy macOS's network-detect
+# UX even though it'd technically NAT. Fall back to slirp only when no
+# physical interface is available (CI / developer laptop).
+#
+# Auto-detect HOST_IFACE if not explicitly set: pick the first UP
+# physical NIC, skipping virtual interfaces (lo, docker, br-, veth,
+# macvtap, virbr, tailscale).
+if [ -z "${HOST_IFACE:-}" ]; then
+    HOST_IFACE="$(ip -br link show 2>/dev/null | \
+        awk '$1 !~ /^(lo|docker|br-|veth|macvtap|virbr|tailscale)/ && \
+             $1 != "" && $2 == "UP" {print $1; exit}')"
+fi
+
+if [ -n "${HOST_IFACE:-}" ] && ip link show "$HOST_IFACE" >/dev/null 2>&1; then
+    echo "Networking: macvtap bridge over $HOST_IFACE (VM gets real LAN IP)"
     ip link del macvtap0 2>/dev/null || true
     ip link add link "$HOST_IFACE" name macvtap0 type macvtap mode bridge
     ip link set macvtap0 allmulticast on
@@ -115,6 +123,11 @@ if [ -n "${HOST_IFACE:-}" ]; then
     MAC=$(cat /sys/class/net/macvtap0/address)
     exec 3<>"$TAP_DEV"
     NETDEV_ARGS="-netdev tap,id=net0,fd=3 -device virtio-net-pci,netdev=net0,mac=$MAC"
+else
+    echo "Networking: WARN no physical NIC detected — falling back to user-mode (slirp)."
+    echo "  macOS recovery may report 'no internet' even though NAT works."
+    echo "  Set HOST_IFACE=<name> to use macvtap (recommended)."
+    NETDEV_ARGS="-netdev user,id=net0,hostfwd=tcp::${SSH_PORT:-22220}-:22 -device virtio-net-pci,netdev=net0"
 fi
 
 echo "================================================================"

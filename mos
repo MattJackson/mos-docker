@@ -40,7 +40,47 @@ case "$cmd" in
             echo "usage: $0 test <phase>  (phase: 0..4)" >&2
             exit 2
         fi
+        # Restore data/disk.img from backup before each test phase >= 1, so every
+        # phase starts from a known-identical state. Phase 0 doesn't touch
+        # data/disk.img (it uses an ephemeral 1G empty disk in run/), so skip
+        # the restore there.
+        #
+        # Set MOS_TEST_NO_RESTORE=1 to opt out (e.g. when iterating quickly on
+        # a phase that doesn't write to disk). Set MOS_BACKUP=path to point at
+        # a different backup file.
+        BACKUP="${MOS_BACKUP:-/mnt/backup/mos-docker/disk-post-install-20260506.img}"
+        if [ "$phase" -ge 1 ] && [ "${MOS_TEST_NO_RESTORE:-0}" != "1" ]; then
+            if [ ! -f "$BACKUP" ]; then
+                echo "WARN: backup not found at $BACKUP — skipping restore." >&2
+                echo "      Disk drift between phases may invalidate regression results." >&2
+            else
+                echo "Restoring data/disk.img from $BACKUP for clean phase $phase test..."
+                cp --sparse=always "$BACKUP" data/disk.img
+                echo "  ✓ restored ($(du -h data/disk.img | cut -f1) actual / $(ls -lh data/disk.img | awk '{print $5}') sparse)"
+            fi
+        fi
         exec docker compose -f compose.test.yml run --rm test "$phase"
+        ;;
+    backup-disk)
+        # Snapshot the current data/disk.img to /mnt/backup with a timestamped name.
+        TS=$(date +%Y%m%d-%H%M%S)
+        BACKUP_DIR="${MOS_BACKUP_DIR:-/mnt/backup/mos-docker}"
+        DEST="$BACKUP_DIR/disk-${1:-snapshot}-${TS}.img"
+        mkdir -p "$BACKUP_DIR"
+        echo "Backing up data/disk.img → $DEST"
+        cp --sparse=always data/disk.img "$DEST"
+        sha256sum "$DEST"
+        echo "  ✓ backed up ($(du -h "$DEST" | cut -f1) actual / $(ls -lh "$DEST" | awk '{print $5}') sparse)"
+        ;;
+    restore-disk)
+        BACKUP="${MOS_BACKUP:-/mnt/backup/mos-docker/disk-post-install-20260506.img}"
+        if [ ! -f "$BACKUP" ]; then
+            echo "ERROR: backup not found at $BACKUP" >&2
+            exit 1
+        fi
+        echo "Restoring data/disk.img from $BACKUP..."
+        cp --sparse=always "$BACKUP" data/disk.img
+        echo "  ✓ restored ($(du -h data/disk.img | cut -f1) actual / $(ls -lh data/disk.img | awk '{print $5}') sparse)"
         ;;
     logs)
         exec docker compose logs -f "$@"
@@ -64,11 +104,19 @@ Common workflow:
 
 Regression testing:
   ./mos build-test         build the test image
-  ./mos test 0             vanilla VNC (UEFI shell)
-  ./mos test 1             OpenCore picker (OEM QEMU)
-  ./mos test 2             OpenCore picker (patched QEMU) — bisect
-  ./mos test 3             + Apple identity
-  ./mos test 4             + apple-gfx-pci (= production)
+  ./mos test 0             vanilla VNC (UEFI shell, no disk)
+  ./mos test 1             OEM QEMU + macOS disk (panics in pmap on Sequoia)
+  ./mos test 2             patched QEMU + macOS disk (boots clean)
+  ./mos test 3             + Apple identity QEMU args
+  ./mos test 4             + apple-gfx-pci (M5 gate; black screen until opcodes)
+
+Each test phase >= 1 restores data/disk.img from MOS_BACKUP before
+running. Default backup: /mnt/backup/mos-docker/disk-post-install-20260506.img.
+Override with MOS_BACKUP=path. Skip restore with MOS_TEST_NO_RESTORE=1.
+
+Disk snapshots:
+  ./mos backup-disk [tag]  cp data/disk.img → /mnt/backup/mos-docker/disk-<tag>-<ts>.img
+  ./mos restore-disk       cp $MOS_BACKUP → data/disk.img
 
 Connect to the VM (install + test phases use bundled noVNC on these ports):
   install:  http://localhost:6080/vnc.html?autoconnect=1

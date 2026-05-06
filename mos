@@ -92,11 +92,19 @@ Common workflow:
 
 Regression testing:
   ./mos build-test         build the test image
-  ./mos test 0             vanilla VNC (UEFI shell, no disk)
-  ./mos test 1             OEM QEMU + macOS disk (panics in pmap on Sequoia)
-  ./mos test 2             patched QEMU + macOS disk (boots clean)
-  ./mos test 3             + Apple identity QEMU args
-  ./mos test 4             + apple-gfx-pci (M5 gate; black screen until opcodes)
+  ./mos test 0             sanity (UEFI shell, no macOS)
+  ./mos test 1             OEM + bare-min stack (login screen)  [TRANSIENT]
+  ./mos test 2             patched + bare-min (binary swap)
+  ./mos test 3             + apple-kbd / apple-tablet (Apple HID swap)
+  ./mos test 4             + apple-gfx-pci (mos product, M5 stage 20% gate)
+
+Phase 1 is [TRANSIENT] — drops when our QEMU patches land upstream.
+End state (post-upstream): 0 sanity, 1 patched-baseline, 2 +apple-kbd,
+3 apple-gfx-pci product.
+
+Bare-min stack (Phases 1+): std-vga + isa-applesmc + ICH9 globals + macOS HD
++ OpenCore. isa-applesmc + ICH9 are required; without them macOS hangs in
+AppleACPICPU busy timeouts.
 
 Each test phase >= 1 restores data/disk.img from MOS_BACKUP before
 running. Default backup: /mnt/backup/mos-docker/disk-post-install-20260506.img.

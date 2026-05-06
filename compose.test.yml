@@ -22,6 +22,8 @@ services:
       - /dev/kvm:/dev/kvm
     cap_add:
       - NET_ADMIN
+    mem_limit: ${MEM_LIMIT:-20g}        # ceiling = guest -m + ~25% for QEMU host-side
+    cpus: '${CPU_LIMIT:-20}'            # ceiling = guest -smp + iothread/qmp headroom
     volumes:
       - ./data:/data
       - ./baselines:/baselines
@@ -29,6 +31,6 @@ services:
     tty: true
     stdin_open: true
     environment:
-      - RAM=${RAM:-4}
-      - SMP=${SMP:-4}
-      - CORES=${CORES:-4}
+      - RAM=${RAM:-8}
+      - SMP=${SMP:-8}
+      - CORES=${CORES:-8}

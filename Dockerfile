@@ -2,10 +2,11 @@
 # mos-docker — production image
 # https://github.com/MattJackson/mos-docker
 #
-# Stages:
-#   lagfx-builder   builds libapplegfx-vulkan from MattJackson/libapplegfx-vulkan
-#   mos15-builder   builds QEMU 10.2.2 with mos-qemu patches (apple-gfx-pci, applesmc, dev-hid, vmware_vga)
-#   final           alpine + patched QEMU + libapplegfx-vulkan + websockify/novnc + OVMF + scripts
+# Single-builder design: libapplegfx-vulkan installs to /usr first, then
+# QEMU configures against it via pkg-config in the same stage. Cleaner
+# than multi-stage cross-COPY because libapplegfx-vulkan installs .so +
+# .pc + headers atomically and we don't have to enumerate every file
+# meson needs at QEMU configure time.
 #
 # All persistent state lives in /data (bind mount required at runtime).
 # Entrypoint dispatches based on first arg: install | run | test.
@@ -13,39 +14,16 @@
 ARG QEMU_VERSION=10.2.2
 
 # ---------------------------------------------------------------------------
-# libapplegfx-vulkan builder
+# Builder: libapplegfx-vulkan + patched QEMU 10.2.2
 # ---------------------------------------------------------------------------
-FROM alpine:3.21 AS lagfx-builder
-
-RUN apk add --no-cache \
-    build-base python3 ninja meson pkgconf \
-    mesa-vulkan-swrast vulkan-loader vulkan-headers vulkan-tools \
-    bash curl
-
-# Alpine ships libvulkan.so.1 but no vulkan.pc / libvulkan.so symlink.
-RUN mkdir -p /usr/lib/pkgconfig \
-    && printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
-    > /usr/lib/pkgconfig/vulkan.pc \
-    && ln -sf libvulkan.so.1 /usr/lib/libvulkan.so
-
-ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
-RUN mkdir -p /tmp/libapplegfx-vulkan \
-    && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
-    && cd /tmp/libapplegfx-vulkan \
-    && meson setup --prefix=/usr --libdir=lib -Dtests=false /tmp/lagfx-build \
-    && ninja -C /tmp/lagfx-build install
-
-# ---------------------------------------------------------------------------
-# QEMU + mos-qemu patches builder
-# ---------------------------------------------------------------------------
-FROM alpine:3.21 AS mos15-builder
+FROM alpine:3.21 AS builder
 ARG QEMU_VERSION
 
 RUN apk add --no-cache \
     build-base python3 ninja meson pkgconf \
     glib-dev pixman-dev libcap-ng-dev libseccomp-dev \
     libslirp-dev libaio-dev curl bash dtc-dev \
-    mesa-vulkan-swrast vulkan-loader vulkan-headers \
+    mesa-vulkan-swrast vulkan-loader vulkan-headers vulkan-tools \
     ccache
 
 ENV PATH="/usr/lib/ccache/bin:${PATH}" \
@@ -56,15 +34,24 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
     CCACHE_COMPILERCHECK=content \
     CCACHE_NOHASHDIR=1
 
-# Bring libapplegfx-vulkan into the build context (mos-qemu's
-# hw/display/meson.build hard-requires it at configure time).
-COPY --from=lagfx-builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
-COPY --from=lagfx-builder /usr/lib/libvulkan.so /usr/lib/libvulkan.so
-
+# Alpine ships libvulkan.so.1 but no vulkan.pc / libvulkan.so symlink.
 RUN mkdir -p /usr/lib/pkgconfig \
     && printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
-    > /usr/lib/pkgconfig/vulkan.pc
+    > /usr/lib/pkgconfig/vulkan.pc \
+    && ln -sf libvulkan.so.1 /usr/lib/libvulkan.so
 
+# Build libapplegfx-vulkan first so QEMU's mos-qemu meson.build finds it
+# at configure time. ADD re-checks upstream; a push to the lib only
+# invalidates this layer + downstream.
+ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
+RUN --mount=type=cache,target=/root/.ccache \
+    mkdir -p /tmp/libapplegfx-vulkan \
+    && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
+    && cd /tmp/libapplegfx-vulkan \
+    && meson setup --prefix=/usr --libdir=lib -Dtests=false /tmp/lagfx-build \
+    && ninja -C /tmp/lagfx-build install
+
+# Build QEMU with mos-qemu patches.
 ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
 ADD https://github.com/MattJackson/mos-qemu/archive/refs/heads/main.tar.gz /tmp/mos-qemu.tar.gz
 
@@ -103,8 +90,9 @@ RUN --mount=type=cache,target=/root/.ccache \
 FROM alpine:3.21
 
 # Runtime deps: glib/pixman for QEMU, OVMF firmware, websockify+novnc for
-# bundled VNC HTTP, vulkan-loader+lavapipe for libapplegfx-vulkan, socat for
-# QMP/HMP debugging from the host, iproute2 for macvtap (when HOST_IFACE set).
+# bundled VNC HTTP (install + test modes), vulkan-loader+lavapipe for
+# libapplegfx-vulkan, socat for QMP/HMP debugging from host, iproute2 for
+# macvtap (when HOST_IFACE set), coreutils for numfmt.
 RUN apk add --no-cache \
     glib pixman libcap-ng libseccomp libslirp \
     libaio libbz2 dtc bash iproute2 ovmf \
@@ -112,28 +100,28 @@ RUN apk add --no-cache \
     websockify novnc \
     vulkan-loader mesa-vulkan-swrast
 
-# Patched QEMU + libapplegfx-vulkan
-COPY --from=mos15-builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
-COPY --from=mos15-builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
-COPY --from=mos15-builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
-COPY --from=lagfx-builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
+# Patched QEMU + libapplegfx-vulkan from the builder.
+COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
+COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
+COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
+COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 
-# Clean OVMF_VARS template for NVRAM reset
+# Clean OVMF_VARS template for NVRAM reset.
 RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd
 
-# Dispatcher + sub-scripts
+# Dispatcher + sub-scripts.
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/install.sh    /scripts/install.sh
 COPY scripts/run.sh        /scripts/run.sh
 RUN chmod +x /scripts/*.sh
 
-# Sane defaults — overridable via env / docker run -e
+# Sane defaults — overridable via env / docker run -e.
 ENV RAM=8 SMP=4 CORES=4 \
     GPU_CORES=0 \
     NOVNC_PORT=6080 VNC_PORT=5900
 
-# noVNC web port (install mode + test mode); production typically uses
-# external noVNC service so this is informational only.
+# noVNC web port (install + test modes); production typically uses external
+# noVNC service so this is informational only.
 EXPOSE 6080
 
 ENTRYPOINT ["/scripts/entrypoint.sh"]

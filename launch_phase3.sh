@@ -68,7 +68,7 @@ exec qemu-system-x86_64 \
     -device virtio-blk-pci,drive=MacHDD \
     -netdev user,id=net0,hostfwd=tcp::${SSH_PORT:-22223}-:22 \
     -device e1000-82545em,netdev=net0 \
-    -vga vmware \
+    -vga std \
     -display none \
     -vnc 127.0.0.1:${VNC_DISPLAY} \
     -serial file:"${SERIAL_LOG}" \

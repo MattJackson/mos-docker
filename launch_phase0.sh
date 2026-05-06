@@ -44,7 +44,7 @@ exec qemu-system-x86_64 \
     -device virtio-blk-pci,drive=disk0 \
     -netdev user,id=net0 \
     -device e1000,netdev=net0 \
-    -vga vmware \
+    -vga std \
     -display none \
     -vnc 127.0.0.1:${VNC_DISPLAY} \
     -serial file:"${SERIAL_LOG}" \

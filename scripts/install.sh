@@ -94,6 +94,9 @@ echo "================================================================"
 echo
 
 # Boot via the shared QEMU launcher with install media + bundled noVNC.
+# Install MUST persist writes to disk.img — that's the whole point of installing.
+# (run.sh defaults to snapshot=on for safety; install opts in to writeable.)
 export MOS_QEMU_INSTALL_MEDIA="$RECOVERY"
 export MOS_QEMU_BUNDLED_NOVNC=1
+export MOS_PERSIST=1
 exec /scripts/run.sh

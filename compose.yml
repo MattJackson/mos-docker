@@ -55,3 +55,8 @@ services:
       - GPU_CORES=${GPU_CORES:-8}
       - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}
+      # MOS_PERSIST: 1 = writes hit disk.img (default behavior for production
+      # users who want their state to survive). 0 = snapshot=on, ephemeral
+      # writes (safer for development; default in scripts/run.sh).
+      # compose.yml defaults to 1 to match the "I'm running production" intent.
+      - MOS_PERSIST=${MOS_PERSIST:-1}

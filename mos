@@ -84,8 +84,9 @@ mos — mos-docker CLI
 
 Common workflow:
   ./mos build              build the production image
-  ./mos install            install macOS (one-time, interactive via noVNC)
-  ./mos run                start macOS in the background
+  ./mos install            install macOS (one-time, interactive — auto-persists)
+  ./mos run                start macOS (default: snapshot=on, no disk drift)
+  MOS_PERSIST=1 ./mos run  start macOS with writes hitting disk.img
   ./mos logs               watch the container log
   ./mos stop               stop macOS
 

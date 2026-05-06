@@ -138,9 +138,25 @@ else
     NETDEV_ARGS="-netdev user,id=net0,hostfwd=tcp::${SSH_PORT:-22220}-:22 -device virtio-net-pci,netdev=net0"
 fi
 
+# --- MacHDD persistence mode ----------------------------------------
+# Default: snapshot=on (writes go to a per-run overlay in QEMU's tmp;
+# disk.img stays read-only; overlay vanishes on container exit). This
+# protects the install from drift during dev iteration, and matches the
+# "never auto-destroy operator state" principle.
+#
+# MOS_PERSIST=1 → snapshot=off; writes hit disk.img directly. Set this
+# when you actually want changes to survive (e.g. installing software
+# in macOS that you want to keep across runs). install.sh sets this
+# automatically.
+MACHDD_SNAPSHOT="snapshot=on,"
+if [ "${MOS_PERSIST:-0}" = "1" ]; then
+    MACHDD_SNAPSHOT=""
+fi
+
 echo "================================================================"
 echo "  mos-docker — booting macOS"
 echo "    disk:        $DISK ($(numfmt --to=iec "$DISK_SIZE"))"
+echo "    persist:     $([ "${MOS_PERSIST:-0}" = "1" ] && echo "YES (writes hit disk.img)" || echo "no (snapshot=on; writes ephemeral)")"
 echo "    OpenCore:    $OPENCORE"
 echo "    serial log:  $SERIAL_LOG"
 echo "    HMP socket:  $HMP_SOCK"
@@ -172,7 +188,7 @@ exec qemu-system-x86_64 \
     -drive id=OpenCoreBoot,if=none,format=raw,file="$OPENCORE",snapshot=on \
     -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
     $INSTALL_MEDIA \
-    -drive id=MacHDD,if=none,file="$DISK",format=raw,cache=none,aio=native \
+    -drive id=MacHDD,if=none,file="$DISK",format=raw,cache=none,aio=native,${MACHDD_SNAPSHOT}\
     -device virtio-blk-pci,drive=MacHDD \
     $NETDEV_ARGS \
     -chardev file,id=serial_file,path="$SERIAL_LOG",append=off \

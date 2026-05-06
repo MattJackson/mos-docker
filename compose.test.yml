@@ -1,0 +1,34 @@
+# mos-docker — regression test stack.
+#
+# Used by `./mos test <phase>` and CI. Builds + runs the test image which
+# extends production with OEM QEMU binary + screenshot capture tools.
+#
+# Run a single phase:
+#   docker compose -f compose.test.yml run --rm test 0
+#   docker compose -f compose.test.yml run --rm test 1
+#   ...
+#
+# All test runs share /data with production (the disk image is the same).
+
+services:
+  test:
+    image: mos-docker:test
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data:/data
+      - ./baselines:/baselines
+    entrypoint: ["/scripts/entrypoint.sh", "test"]
+    tty: true
+    stdin_open: true
+    environment:
+      - RAM=${RAM:-4}
+      - SMP=${SMP:-4}
+      - CORES=${CORES:-4}

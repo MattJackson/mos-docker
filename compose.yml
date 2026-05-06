@@ -1,0 +1,57 @@
+# mos-docker — production stack.
+#
+# Runs an installed macOS VM. Persistent state in ./data/ on the host.
+#
+# First time:   docker compose run --rm install
+# Steady state: docker compose up -d
+# Logs:         docker compose logs -f
+# Stop:         docker compose down
+#
+# noVNC: macOS exposes VNC at 127.0.0.1:5900 inside the container; in
+# production you typically front-end it with your existing reverse proxy +
+# noVNC web service. For local-only access uncomment the bundled-noVNC port.
+
+services:
+  install:
+    image: mos-docker:latest
+    build: .
+    profiles: ["install"]               # only runs when explicitly invoked
+    command: ["install"]
+    privileged: true                    # /dev/kvm + macvtap when HOST_IFACE set
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data:/data
+    tty: true
+    stdin_open: true                    # interactive — let user see install progress
+    environment:
+      - DISK_SIZE=${DISK_SIZE:-256G}
+      - RAM=${RAM:-8}
+      - SMP=${SMP:-4}
+      - CORES=${CORES:-4}
+      - MOS_QEMU_BUNDLED_NOVNC=1        # install needs noVNC for the user
+
+  macos:
+    image: mos-docker:latest
+    build: .
+    command: ["run"]
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./data:/data
+    environment:
+      - HOST_IFACE=${HOST_IFACE:-}      # empty = user-mode networking; set for macvtap
+      - RAM=${RAM:-16}
+      - SMP=${SMP:-16}
+      - CORES=${CORES:-16}
+      - GPU_CORES=${GPU_CORES:-8}
+      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
+      - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}

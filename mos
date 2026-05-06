@@ -1,0 +1,91 @@
+#!/bin/bash
+# mos — convenience CLI wrapper for mos-docker.
+#
+# Usage:
+#   ./mos install       — install macOS into ./data/disk.img (interactive, ~30 min)
+#   ./mos run           — run installed macOS (daemon)
+#   ./mos test <phase>  — run regression test phase 0..4 (interactive)
+#   ./mos build         — build the production image
+#   ./mos build-test    — build the test image (extends production)
+#   ./mos logs          — tail the running container's log
+#   ./mos stop          — stop running containers
+#   ./mos shell         — exec a shell into the running container
+#
+# This is a thin wrapper over `docker compose`. You can use `docker compose`
+# directly if you prefer.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+mkdir -p data baselines
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+    build)
+        exec docker compose build "$@"
+        ;;
+    build-test)
+        exec docker compose -f compose.yml -f compose.test.yml build test
+        ;;
+    install)
+        exec docker compose run --rm --service-ports install
+        ;;
+    run)
+        exec docker compose up -d "$@"
+        ;;
+    test)
+        phase="${1:-}"
+        if [[ ! "$phase" =~ ^[0-4]$ ]]; then
+            echo "usage: $0 test <phase>  (phase: 0..4)" >&2
+            exit 2
+        fi
+        exec docker compose -f compose.test.yml run --rm test "$phase"
+        ;;
+    logs)
+        exec docker compose logs -f "$@"
+        ;;
+    stop|down)
+        exec docker compose down "$@"
+        ;;
+    shell|exec)
+        exec docker compose exec macos bash "$@"
+        ;;
+    help|--help|-h|"")
+        cat <<EOF
+mos — mos-docker CLI
+
+Common workflow:
+  ./mos build              build the production image
+  ./mos install            install macOS (one-time, interactive via noVNC)
+  ./mos run                start macOS in the background
+  ./mos logs               watch the container log
+  ./mos stop               stop macOS
+
+Regression testing:
+  ./mos build-test         build the test image
+  ./mos test 0             vanilla VNC (UEFI shell)
+  ./mos test 1             OpenCore picker (OEM QEMU)
+  ./mos test 2             OpenCore picker (patched QEMU) — bisect
+  ./mos test 3             + Apple identity
+  ./mos test 4             + apple-gfx-pci (= production)
+
+Connect to the VM (install + test phases use bundled noVNC on these ports):
+  install:  http://localhost:6080/vnc.html?autoconnect=1
+  test 0:   http://localhost:6080/vnc.html?autoconnect=1
+  test 1:   http://localhost:6081/vnc.html?autoconnect=1
+  test 2:   http://localhost:6082/vnc.html?autoconnect=1
+  test 3:   http://localhost:6083/vnc.html?autoconnect=1
+  test 4:   http://localhost:6084/vnc.html?autoconnect=1
+
+Production:  use your existing noVNC service (compose.yml does not bundle one).
+
+Persistent state: ./data/{disk.img,OpenCore.img,recovery.img,logs/,run/}
+EOF
+        ;;
+    *)
+        echo "unknown command: $cmd" >&2
+        echo "run '$0 help' for usage" >&2
+        exit 2
+        ;;
+esac

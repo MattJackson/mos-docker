@@ -40,25 +40,12 @@ case "$cmd" in
             echo "usage: $0 test <phase>  (phase: 0..4)" >&2
             exit 2
         fi
-        # Restore data/disk.img from backup before each test phase >= 1, so every
-        # phase starts from a known-identical state. Phase 0 doesn't touch
-        # data/disk.img (it uses an ephemeral 1G empty disk in run/), so skip
-        # the restore there.
-        #
-        # Set MOS_TEST_NO_RESTORE=1 to opt out (e.g. when iterating quickly on
-        # a phase that doesn't write to disk). Set MOS_BACKUP=path to point at
-        # a different backup file.
-        BACKUP="${MOS_BACKUP:-/mnt/backup/mos-docker/disk-post-install-20260506.img}"
-        if [ "$phase" -ge 1 ] && [ "${MOS_TEST_NO_RESTORE:-0}" != "1" ]; then
-            if [ ! -f "$BACKUP" ]; then
-                echo "WARN: backup not found at $BACKUP — skipping restore." >&2
-                echo "      Disk drift between phases may invalidate regression results." >&2
-            else
-                echo "Restoring data/disk.img from $BACKUP for clean phase $phase test..."
-                cp --sparse=always "$BACKUP" data/disk.img
-                echo "  ✓ restored ($(du -h data/disk.img | cut -f1) actual / $(ls -lh data/disk.img | awk '{print $5}') sparse)"
-            fi
-        fi
+        # No pre-test disk restore needed — scripts/test.sh attaches the
+        # MacHDD drive with snapshot=on, so every test write goes to a
+        # per-run overlay in QEMU's tmp and the underlying data/disk.img
+        # stays read-only. Container exits → overlay vanishes.
+        # Use ./mos restore-disk for ad-hoc manual restores if disk.img
+        # itself ever drifts (it shouldn't, given snapshot=on).
         exec docker compose -f compose.test.yml run --rm test "$phase"
         ;;
     backup-disk)

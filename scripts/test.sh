@@ -140,7 +140,7 @@ else
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native"
+        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on"
         -device virtio-blk-pci,drive=MacHDD
     )
 fi

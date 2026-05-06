@@ -1,10 +1,14 @@
 # mos-docker library
 
-Curated documentation for [mos-docker](https://github.com/MattJackson/mos-docker).
-The top-level [README](../README.md) is the 2-command quickstart;
-[SETUP](../SETUP.md) is the detailed first-time walkthrough. This
-library covers the architecture, operational topics, and historical
-record beyond what fits in those.
+Curated documentation for [mos-docker](https://github.com/MattJackson/mos-docker)
+specifically — this is the *runtime* repo's local docs. For
+**project-wide vision, architecture, and whitepapers**, see
+[**mos-docs**](https://github.com/MattJackson/mos-docs) — that's the
+canonical project library covering all 5 sibling repos.
+
+This local library covers what's specific to running mos-docker:
+operational topics, the regression test infrastructure, and the
+historical record of incidents in this repo.
 
 ## How to navigate
 

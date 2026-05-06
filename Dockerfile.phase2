@@ -1,12 +1,32 @@
 # syntax=docker/dockerfile:1.7
 # Phase 2 — Swap OEM QEMU binary for mos15-patched build.
-# Inherits phase1. Adds: patched qemu-system-x86_64 (overlays
-# applesmc.c + dev-hid.c + vmware_vga.c + apple-gfx-pci-linux.c
-# from MattJackson/mos-qemu) + phase 2 launcher.
+# Inherits phase1. Adds: patched qemu-system-x86_64 + libapplegfx-vulkan.so
+# (latter is a BUILD-TIME dep of mos-qemu's apple-gfx-pci-linux.c, even
+# though Phase 2's launcher doesn't enable the apple-gfx-pci device).
 # Pass: identical visual to Phase 1 (OpenCore picker), proves patches
 # don't regress the OpenCore stage. noVNC at port 6082.
 
 ARG QEMU_VERSION=10.2.2
+
+FROM alpine:3.21 AS lagfx-builder
+
+RUN apk add --no-cache \
+    build-base python3 ninja meson pkgconf \
+    mesa-vulkan-swrast vulkan-loader vulkan-headers vulkan-tools \
+    bash curl
+
+# Alpine ships libvulkan.so.1 but NOT vulkan.pc / libvulkan.so symlink.
+RUN mkdir -p /usr/lib/pkgconfig \
+    && printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
+    > /usr/lib/pkgconfig/vulkan.pc \
+    && ln -sf libvulkan.so.1 /usr/lib/libvulkan.so
+
+ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
+RUN mkdir -p /tmp/libapplegfx-vulkan \
+    && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
+    && cd /tmp/libapplegfx-vulkan \
+    && meson setup --prefix=/usr --libdir=lib -Dtests=false /tmp/lagfx-build \
+    && ninja -C /tmp/lagfx-build install
 
 FROM alpine:3.21 AS mos15-builder
 ARG QEMU_VERSION
@@ -25,6 +45,18 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
     CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_macro,locale,pch_defines \
     CCACHE_COMPILERCHECK=content \
     CCACHE_NOHASHDIR=1
+
+# Bring libapplegfx-vulkan into the qemu builder so meson finds it at
+# configure-time. mos-qemu's hw/display/meson.build hard-requires it.
+COPY --from=lagfx-builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
+COPY --from=lagfx-builder /usr/include/applegfx-vulkan*.h /usr/include/ 2>/dev/null || :
+COPY --from=lagfx-builder /usr/lib/pkgconfig/applegfx-vulkan.pc /usr/lib/pkgconfig/ 2>/dev/null || :
+COPY --from=lagfx-builder /usr/lib/libvulkan.so /usr/lib/libvulkan.so
+
+# Synthesize vulkan.pc (Alpine ships .so but not .pc).
+RUN mkdir -p /usr/lib/pkgconfig \
+    && printf 'Name: vulkan\nVersion: 1.3.296\nDescription: Vulkan loader\nLibs: -L/usr/lib -lvulkan\nCflags: -I/usr/include\n' \
+    > /usr/lib/pkgconfig/vulkan.pc
 
 ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
 ADD https://github.com/MattJackson/mos-qemu/archive/refs/heads/main.tar.gz /tmp/mos-qemu.tar.gz
@@ -66,12 +98,16 @@ RUN --mount=type=cache,target=/root/.ccache \
 
 FROM mos-docker-phase1:latest
 
-# Swap the OEM QEMU binary for the mos15-patched one. Same path, same
-# permissions — the only thing that changes between Phase 1 and Phase 2.
-# /usr/share/qemu/ COPY brings the apple-gfx-pci.rom (installed by `make
-# install` into the share dir).
+# Vulkan loader runtime (lavapipe) — needed because the patched QEMU
+# binary links against libapplegfx-vulkan which links against libvulkan.
+RUN apk add --no-cache vulkan-loader mesa-vulkan-swrast
+
+# Swap the OEM QEMU binary for the mos15-patched one.
 COPY --from=mos15-builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
 COPY --from=mos15-builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
+
+# libapplegfx-vulkan shared library — runtime dep of the patched QEMU.
+COPY --from=lagfx-builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 
 COPY launch_phase2.sh /opt/macos/launch_phase2.sh
 RUN chmod +x /opt/macos/launch_phase2.sh

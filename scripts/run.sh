@@ -66,16 +66,31 @@ if [ "${MOS_QEMU_BUNDLED_NOVNC:-0}" = "1" ]; then
     NOVNC_BG=$!
 fi
 
-# --- apple-gfx-pci gpu_cores plumbing ---------------------------------
-GPU_CORES_RAW="${GPU_CORES:-0}"
-APPLE_GFX_DEVICE="-device apple-gfx-pci"
-if [[ "$GPU_CORES_RAW" =~ ^[0-9]+$ ]] && [ "$GPU_CORES_RAW" -gt 0 ]; then
-    APPLE_GFX_DEVICE="-device apple-gfx-pci,gpu_cores=$GPU_CORES_RAW"
-fi
-
-# --- Memory backend (memfd required for apple-gfx-pci coherence) ------
+# --- Display device selection ----------------------------------------
+# Default: -vga std (Bochs/QEMU stdvga). Works with macOS recovery +
+# OpenCore picker + macOS post-install kernel via the linear framebuffer
+# hand-off. Reliable, renders everywhere.
+#
+# Apple paravirt GPU (`-vga none -device apple-gfx-pci`) is the future
+# production target but requires libapplegfx-vulkan opcode handlers
+# (M5 stage 20%) — until those land, the device renders nothing
+# (you see "Guest has not initialized the display"). Opt in with
+# MOS_USE_APPLE_GFX_PCI=1 only when you're testing the M5 path.
+DISPLAY_ARGS="-vga std"
+MEM_BACKEND_ARGS=""
 RAM_GB="${RAM:-8}"
-MEM_BACKEND="memory-backend-memfd,id=mem,size=${RAM_GB}G,share=on"
+if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
+    GPU_CORES_RAW="${GPU_CORES:-0}"
+    APPLE_GFX_DEVICE="-device apple-gfx-pci"
+    if [[ "$GPU_CORES_RAW" =~ ^[0-9]+$ ]] && [ "$GPU_CORES_RAW" -gt 0 ]; then
+        APPLE_GFX_DEVICE="-device apple-gfx-pci,gpu_cores=$GPU_CORES_RAW"
+    fi
+    DISPLAY_ARGS="-vga none $APPLE_GFX_DEVICE"
+    # apple-gfx-pci needs memfd memory backend for the mremap-alias path.
+    MEM_BACKEND_ARGS="-object memory-backend-memfd,id=mem,size=${RAM_GB}G,share=on -machine memory-backend=mem"
+    echo "WARNING: MOS_USE_APPLE_GFX_PCI=1 — display will likely be blank"
+    echo "  until libapplegfx-vulkan opcode handlers are implemented (M5)."
+fi
 
 # --- Networking: prefer user-mode unless HOST_IFACE+macvtap requested -
 NETDEV_ARGS="-netdev user,id=net0,hostfwd=tcp::${SSH_PORT:-22220}-:22 \
@@ -118,9 +133,9 @@ trap '[ -n "$NOVNC_BG" ] && kill $NOVNC_BG 2>/dev/null || true' EXIT
 exec qemu-system-x86_64 \
     -enable-kvm \
     -m "${RAM_GB}G" \
-    -object "$MEM_BACKEND" \
+    $MEM_BACKEND_ARGS \
     -cpu "${CPU_MODEL:-host}",vendor=GenuineIntel,vmware-cpuid-freq=on \
-    -machine q35,accel=kvm,memory-backend=mem \
+    -machine q35,accel=kvm \
     -smp "${SMP:-4}",cores="${CORES:-4}" \
     -device qemu-xhci,id=xhci \
     -device apple-kbd,bus=xhci.0 \
@@ -145,6 +160,5 @@ exec qemu-system-x86_64 \
     -monitor chardev:hmp_sock \
     -qmp unix:"$QMP_SOCK",server=on,wait=off \
     -vnc 127.0.0.1:${VNC_DISPLAY} \
-    -vga none \
-    $APPLE_GFX_DEVICE \
+    $DISPLAY_ARGS \
     ${EXTRA:-}

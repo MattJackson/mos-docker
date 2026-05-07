@@ -18,7 +18,7 @@
 #   2  patched QEMU + same args                        binary swap (proves
 #                                                      patches don't regress
 #                                                      the bare-min login)
-#   3  + apple-kbd / apple-tablet                      Apple HID identity at
+#   3  + usb-kbd / usb-tablet (Apple HID via apple-magic-keyboard pending)                      Apple HID identity at
 #                                                      the QEMU emulation
 #                                                      level (cosmetic vs
 #                                                      generic usb-kbd)
@@ -29,7 +29,7 @@
 #                                                      M5 stage 20% gate)
 #
 # End-state chain (after upstream merges retire phase 1):
-#   0 sanity → 1 patched-baseline → 2 + apple-kbd → 3 apple-gfx-pci product.
+#   0 sanity → 1 patched-baseline → 2 apple-gfx-pci product.
 #
 # isa-applesmc + ICH9 globals (disable_s3, disable_s4, acpi-pci-hotplug-with-
 # bridge-support=off) are the bare minimum macOS Sequoia needs to boot past
@@ -145,23 +145,19 @@ if [ "$PHASE" -ge 1 ]; then
     )
 fi
 
-# USB / Apple HID identity:
-#   0,1,2 → generic usb-kbd / usb-tablet (sufficient for boot + login)
-#   3,4   → apple-kbd / apple-tablet (Apple-branded USB descriptors at the
-#           QEMU emulation level, cosmetic vs generic)
-if [ "$PHASE" -ge 3 ]; then
-    COMMON_ARGS+=(
-        -device qemu-xhci,id=xhci
-        -device apple-kbd,bus=xhci.0
-        -device apple-tablet,bus=xhci.0
-    )
-else
-    COMMON_ARGS+=(
-        -device qemu-xhci,id=xhci
-        -device usb-kbd,bus=xhci.0
-        -device usb-tablet,bus=xhci.0
-    )
-fi
+# USB HID — all phases use generic usb-kbd / usb-tablet for now.
+#
+# The previous apple-kbd / apple-tablet wrappers (Package D) were
+# descriptor-only spoofs that broke macOS recovery's HID stack and
+# have been withdrawn 2026-05-07. The replacement device,
+# `apple-magic-keyboard` (PID 0x026c, Apple vendor HID protocol),
+# is in development; once Phase 0 lands and proves out, phases
+# 3+ can switch to it.
+COMMON_ARGS+=(
+    -device qemu-xhci,id=xhci
+    -device usb-kbd,bus=xhci.0
+    -device usb-tablet,bus=xhci.0
+)
 
 # Disk attach: phase 0 has just empty disk, phases 1-4 have macOS + OpenCore.
 if [ "$PHASE" = "0" ]; then

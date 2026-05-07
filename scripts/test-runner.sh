@@ -1,0 +1,227 @@
+#!/bin/bash
+# mos-docker test-runner — code-driven phase regression check.
+#
+# Runs ONE phase end-to-end:
+#   1. Launch the phase via docker compose (test image, detached).
+#   2. Tail the serial log; fail fast on panic / debugger / 240s busy timeout.
+#   3. Wait for the per-phase boot marker (UEFI shell prompt for phase 0;
+#      `loginwindow (PID)` for phases 1-3). Timeout = $BOOT_TIMEOUT (default 300s).
+#   4. Settle $SETTLE_SECS (default 15).
+#   5. Capture the QEMU framebuffer via QMP screendump → PPM → PNG.
+#   6. ImageMagick `compare -metric AE -fuzz $FUZZ` vs baselines/phase-N-gold.png.
+#      PASS if pixel-diff count < $DIFF_THRESHOLD_PCT% of 1920×1080.
+#   7. Tear down the container, exit 0 on PASS, 1 on FAIL.
+#
+# Boot success requires BOTH:
+#   - serial: kernel reached login state internally
+#   - visual: framebuffer matches gold within tolerance
+#
+# Usage: scripts/test-runner.sh <phase>           # one phase
+#        scripts/test-runner.sh all               # phases 0..3 sequentially
+#
+# Env knobs: BOOT_TIMEOUT, SETTLE_SECS, FUZZ, RUNNER_VERBOSE=1
+set -euo pipefail
+
+PHASE_ARG="${1:?usage: test-runner.sh <phase|all>}"
+BOOT_TIMEOUT="${BOOT_TIMEOUT:-300}"
+SETTLE_SECS="${SETTLE_SECS:-15}"
+FUZZ="${FUZZ:-5%}"
+DATA_DIR=/mnt/docker/mos-data
+BASELINES_DIR="${BASELINES_DIR:-/home/matthew/mos-docker/baselines}"
+TEST_IMAGE="${TEST_IMAGE:-mos-docker:test}"
+
+# Resolution for diff-threshold calc.
+RES_W=1920; RES_H=1080
+TOTAL_PX=$((RES_W * RES_H))
+
+# Per-phase config.
+phase_config() {
+    local phase=$1
+    case "$phase" in
+        0)
+            BOOT_MARKER='UEFI Interactive Shell|EDK II'
+            DIFF_THRESHOLD_PCT=1   # static UEFI text on black
+            ;;
+        1|2|3)
+            BOOT_MARKER='loginwindow \([0-9]+\)'
+            DIFF_THRESHOLD_PCT=8   # accommodates clock + cursor + login-UI variance
+            ;;
+        4)
+            echo "phase 4: apple-gfx-pci paravirt — no gold (M5 stage 20% gate)" >&2
+            return 2
+            ;;
+        *)
+            echo "phase $phase: unknown" >&2
+            return 2
+            ;;
+    esac
+    FAIL_MARKERS='\bpanic\b|debugger entered|halted|busy timeout.*240s'
+    GOLD="$BASELINES_DIR/phase-${phase}-gold.png"
+    CURRENT="$BASELINES_DIR/phase-${phase}-current.png"
+    DIFF_OVERLAY="$BASELINES_DIR/phase-${phase}-diff.png"
+    if [ ! -f "$GOLD" ]; then
+        echo "phase $phase: ERROR gold not found at $GOLD" >&2
+        return 2
+    fi
+    return 0
+}
+
+teardown() {
+    local name=$1
+    sudo docker stop "$name" >/dev/null 2>&1 || true
+    sudo docker rm "$name" >/dev/null 2>&1 || true
+}
+
+run_phase() {
+    local phase=$1
+    phase_config "$phase" || return $?
+
+    local container="mos-runner-phase${phase}"
+    local serial_glob="$DATA_DIR/logs/serial-phase${phase}-*.log"
+    local qmp_sock="$DATA_DIR/run/qemu-phase${phase}-qmp.sock"
+    local ppm="$DATA_DIR/run/phase${phase}-runner.ppm"
+    local png="$DATA_DIR/run/phase${phase}-runner.png"
+    local diff_png="$DATA_DIR/run/phase${phase}-runner-diff.png"
+
+    teardown "$container"
+
+    local start_ts=$(date +%s)
+    echo "[runner] phase $phase: launching ($container)..."
+    sudo docker run -d --rm --name "$container" \
+        --privileged --network host \
+        --device /dev/kvm:/dev/kvm \
+        --cap-add NET_ADMIN \
+        --memory 20g --cpus 20 \
+        -v "$DATA_DIR":/data \
+        -v "$BASELINES_DIR":/baselines \
+        --entrypoint /scripts/test.sh \
+        "$TEST_IMAGE" "$phase" >/dev/null
+
+    # Wait for the serial log to appear.
+    local serial_log=""
+    for _ in $(seq 1 60); do
+        serial_log=$(sudo sh -c "ls -t $serial_glob 2>/dev/null | head -1")
+        [ -n "$serial_log" ] && break
+        sleep 1
+    done
+    if [ -z "$serial_log" ]; then
+        echo "[runner] phase $phase: FAIL — no serial log appeared in 60s"
+        teardown "$container"
+        return 1
+    fi
+    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: serial=$serial_log"
+
+    # Poll: fail-fast on panic markers, succeed on boot marker.
+    local boot_time=0
+    while true; do
+        local elapsed=$(($(date +%s) - start_ts))
+
+        if sudo grep -qE "$FAIL_MARKERS" "$serial_log" 2>/dev/null; then
+            local panic_line=$(sudo grep -nE "$FAIL_MARKERS" "$serial_log" | head -1)
+            echo "[runner] phase $phase: FAIL panic=\"$panic_line\" t=${elapsed}s"
+            echo "  full serial: $serial_log"
+            teardown "$container"
+            return 1
+        fi
+
+        if sudo grep -qE "$BOOT_MARKER" "$serial_log" 2>/dev/null; then
+            boot_time=$elapsed
+            break
+        fi
+
+        if [ "$elapsed" -gt "$BOOT_TIMEOUT" ]; then
+            echo "[runner] phase $phase: FAIL — boot timeout after ${BOOT_TIMEOUT}s"
+            echo "  full serial: $serial_log"
+            teardown "$container"
+            return 1
+        fi
+        sleep 5
+    done
+
+    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s, settling ${SETTLE_SECS}s..."
+    sleep "$SETTLE_SECS"
+
+    # Capture framebuffer via QMP screendump.
+    if ! sudo bash -c "echo screendump $ppm | socat - UNIX-CONNECT:$qmp_sock" >/dev/null 2>&1; then
+        echo "[runner] phase $phase: FAIL — QMP screendump failed (socket missing or no display surface)"
+        echo "  This may mean the guest never created a DisplaySurface (e.g. apple-gfx-pci with no opcodes)."
+        teardown "$container"
+        return 1
+    fi
+    sleep 2
+    if ! sudo test -f "$ppm"; then
+        echo "[runner] phase $phase: FAIL — screendump produced no PPM"
+        teardown "$container"
+        return 1
+    fi
+
+    # Convert PPM → PNG via alpine+imagemagick container.
+    sudo docker run --rm -v "$DATA_DIR/run:/work" alpine:3.20 sh -c \
+        "apk add -q imagemagick && convert /work/$(basename "$ppm") /work/$(basename "$png")" >/dev/null 2>&1 || {
+            echo "[runner] phase $phase: FAIL — PPM→PNG conversion failed"
+            teardown "$container"
+            return 1
+        }
+    sudo cp "$png" "$CURRENT"
+
+    # Compare against gold via alpine+imagemagick container.
+    # `compare -metric AE -fuzz N%` prints the count of differing pixels to stderr,
+    # exits 1 if there's any diff. We capture stderr and ignore exit code.
+    local diff_count
+    diff_count=$(sudo docker run --rm \
+        -v "$DATA_DIR/run:/work" \
+        -v "$BASELINES_DIR:/baselines:ro" \
+        alpine:3.20 sh -c \
+        "apk add -q imagemagick && compare -metric AE -fuzz $FUZZ /work/$(basename "$png") /baselines/$(basename "$GOLD") /work/$(basename "$diff_png") 2>&1; true" \
+        | tail -1)
+    sudo cp "$diff_png" "$DIFF_OVERLAY" 2>/dev/null || true
+
+    if [[ ! "$diff_count" =~ ^[0-9]+$ ]]; then
+        echo "[runner] phase $phase: FAIL — image compare error: $diff_count"
+        teardown "$container"
+        return 1
+    fi
+
+    local threshold_px=$((TOTAL_PX * DIFF_THRESHOLD_PCT / 100))
+    local pct
+    pct=$(awk "BEGIN { printf \"%.2f\", $diff_count / $TOTAL_PX * 100 }")
+
+    if [ "$diff_count" -lt "$threshold_px" ]; then
+        echo "[runner] phase $phase: PASS  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
+        teardown "$container"
+        return 0
+    else
+        echo "[runner] phase $phase: FAIL  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
+        echo "  current: $CURRENT"
+        echo "  diff:    $DIFF_OVERLAY"
+        teardown "$container"
+        return 1
+    fi
+}
+
+run_all() {
+    local fails=0
+    local passed=()
+    local failed=()
+    for phase in 0 1 2 3; do
+        if run_phase "$phase"; then
+            passed+=("$phase")
+        else
+            fails=$((fails + 1))
+            failed+=("$phase")
+        fi
+    done
+    echo
+    echo "================================================================"
+    echo "  Summary: ${#passed[@]} pass / ${#failed[@]} fail"
+    [ ${#passed[@]} -gt 0 ] && echo "  PASS: ${passed[*]}"
+    [ ${#failed[@]} -gt 0 ] && echo "  FAIL: ${failed[*]}"
+    echo "================================================================"
+    return "$fails"
+}
+
+case "$PHASE_ARG" in
+    all) run_all ;;
+    [0-4]) run_phase "$PHASE_ARG" ;;
+    *) echo "usage: $0 <phase|all>" >&2; exit 2 ;;
+esac

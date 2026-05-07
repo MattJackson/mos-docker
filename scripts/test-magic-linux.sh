@@ -173,7 +173,7 @@ trap 'rm -rf $SCRATCH' EXIT
 # 1) Extract Alpine kernel + initramfs from the ISO (the ISO is hybrid
 #    ISO9660 — mountable as iso9660 in the container).
 mkdir -p $SCRATCH/iso
-mount -o loop,ro "$ISO" $SCRATCH/iso
+mount -t iso9660 -o loop,ro "$ISO" $SCRATCH/iso
 cp $SCRATCH/iso/boot/vmlinuz-virt $SCRATCH/vmlinuz
 cp $SCRATCH/iso/boot/initramfs-virt $SCRATCH/initramfs.orig
 

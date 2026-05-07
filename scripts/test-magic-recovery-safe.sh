@@ -56,7 +56,15 @@ set -euo pipefail
 # ---- Tunables (env-overridable) ---------------------------------------
 IMAGE="${MOS_TEST_IMAGE:-mos-docker:test}"
 HOST_DATA="${HOST_MOS_DATA:-$HOME/mos-docker/data}"
-RECOVERY_IMG="${MOS_RECOVERY_IMG:-recovery.img}"  # under HOST_DATA
+# IMPORTANT: this script uses its OWN copies of OpenCore.img and
+# recovery.img under $HOST_DATA/magic-test/, NOT the shared
+# $HOST_DATA/{OpenCore,recovery}.img which are M5 development's
+# working set. The script auto-creates the magic-test/ subdir and
+# copies the images on first run; on subsequent runs it reuses
+# them. Override the source directory with MOS_MAGIC_DATA= if you
+# want to point elsewhere.
+MAGIC_DATA="${MOS_MAGIC_DATA:-${HOST_DATA}/magic-test}"
+RECOVERY_IMG="${MOS_RECOVERY_IMG:-recovery.img}"  # basename under MAGIC_DATA
 KBD_DEVICE="${MOS_MAGIC_KBD:-apple-magic-keyboard}"
 # apple-magic-tablet doesn't exist yet (only apple-magic-keyboard is in
 # qemu-mos15 as of 2026-05-07). Fall back to upstream usb-tablet so the
@@ -89,17 +97,23 @@ if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
     exit 1
 fi
 
-if [ ! -f "${HOST_DATA}/OpenCore.img" ]; then
-    echo "ERROR: ${HOST_DATA}/OpenCore.img missing." >&2
-    echo "  Recovery boot needs an OpenCore EFI image." >&2
-    exit 1
-fi
-if [ ! -f "${HOST_DATA}/${RECOVERY_IMG}" ]; then
-    echo "ERROR: ${HOST_DATA}/${RECOVERY_IMG} missing." >&2
-    echo "  Drop the macOS recovery image at \$HOST_MOS_DATA/${RECOVERY_IMG}." >&2
-    echo "  (Override with MOS_RECOVERY_IMG=<basename> if it's named differently.)" >&2
-    exit 1
-fi
+# Stage MAGIC_DATA/ — our own copies of OpenCore.img + recovery.img
+# so concurrent M5 development on $HOST_DATA/disk.img isn't disturbed
+# by attaching the user's working set as our test inputs.
+mkdir -p "${MAGIC_DATA}"
+for src in OpenCore.img "${RECOVERY_IMG}"; do
+    if [ ! -f "${HOST_DATA}/${src}" ]; then
+        echo "ERROR: source ${HOST_DATA}/${src} missing." >&2
+        echo "  Drop the file at \$HOST_MOS_DATA/${src}." >&2
+        exit 1
+    fi
+    if [ ! -f "${MAGIC_DATA}/${src}" ] || \
+       [ "${HOST_DATA}/${src}" -nt "${MAGIC_DATA}/${src}" ]; then
+        echo "  Staging ${src} → ${MAGIC_DATA}/ (copy of ${HOST_DATA}/${src})"
+        cp "${HOST_DATA}/${src}" "${MAGIC_DATA}/${src}.tmp"
+        mv "${MAGIC_DATA}/${src}.tmp" "${MAGIC_DATA}/${src}"
+    fi
+done
 
 # Sanity: refuse to attach disk.img. This script's whole point is to NOT
 # put the macOS install at risk while we're debugging a host-hanging
@@ -153,6 +167,7 @@ docker run \
     --memory-swap="${CONTAINER_MEM}" \
     --device /dev/kvm:/dev/kvm \
     -v "${HOST_DATA}:/data" \
+    -v "${MAGIC_DATA}:/magic-test:ro" \
     -e "TS=${TS}" \
     -e "QMP_SOCK_NAME=${QMP_SOCK_NAME}" \
     -e "QEMU_TIMEOUT_SEC=${QEMU_TIMEOUT_SEC}" \
@@ -204,9 +219,9 @@ timeout --signal=TERM --kill-after=15 "$QEMU_TIMEOUT_SEC" \
         -device "$KBD_DEVICE",bus=xhci.0 \
         -device "$TABLET_DEVICE",bus=xhci.0 \
         -device ich9-ahci,id=sata \
-        -drive id=OpenCoreBoot,if=none,format=raw,file=/data/OpenCore.img,snapshot=on \
+        -drive id=OpenCoreBoot,if=none,format=raw,file=/magic-test/OpenCore.img,snapshot=on \
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
-        -drive id=Recovery,if=none,format=raw,file=/data/${RECOVERY_IMG},snapshot=on \
+        -drive id=Recovery,if=none,format=raw,file=/magic-test/${RECOVERY_IMG},snapshot=on \
         -device virtio-blk-pci,drive=Recovery \
         -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on \
         -display none \

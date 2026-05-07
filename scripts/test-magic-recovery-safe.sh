@@ -80,6 +80,10 @@ QEMU_TIMEOUT_SEC=300       # 5 minutes wall-clock
 
 TS="$(date +%Y%m%d-%H%M%S)"
 CONTAINER_NAME="mos-magic-recovery-${TS}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# VNC_DISPLAY: avoids collision with M5 prod (5900) and M5 phase4 test (5904).
+# Use last 2 digits of YYMMDD-HHMMSS-style seconds as a low-collision pick.
+VNC_DISPLAY="${MOS_VNC_DISPLAY:-$(( ( $(date +%s) % 100 ) + 80 ))}"
 LOG_DIR="${HOST_DATA}/logs"
 RUN_DIR="${HOST_DATA}/run"
 mkdir -p "${LOG_DIR}" "${RUN_DIR}"
@@ -156,11 +160,13 @@ EOF
 # up on the host directly. The QMP socket is also created under /data/run
 # so the host can `socat` into it for live inspection if desired.
 #
-# Inner script delivered via stdin (`bash -s`) with a fully-quoted heredoc
-# so embedded JSON / escaped quotes for QMP commands aren't mangled by
-# the host shell. Variables that vary per-run are passed via `-e`.
+# Inner script lives in scripts/test-magic-recovery-safe.inner.sh and is
+# mounted into the container, then invoked directly. Earlier versions
+# delivered the inner body via stdin heredoc (`bash -s <<EOF`), but
+# `docker run --detach` returns as soon as the container is created and
+# the heredoc never streams in fully — qemu silently never launched.
 docker run \
-    --detach -i \
+    --detach \
     --name "${CONTAINER_NAME}" \
     --cpus="${CONTAINER_CPUS}" \
     --memory="${CONTAINER_MEM}" \
@@ -168,6 +174,7 @@ docker run \
     --device /dev/kvm:/dev/kvm \
     -v "${HOST_DATA}:/data" \
     -v "${MAGIC_DATA}:/magic-test:ro" \
+    -v "${SCRIPT_DIR}/test-magic-recovery-safe.inner.sh:/inner.sh:ro" \
     -e "TS=${TS}" \
     -e "QMP_SOCK_NAME=${QMP_SOCK_NAME}" \
     -e "QEMU_TIMEOUT_SEC=${QEMU_TIMEOUT_SEC}" \
@@ -176,63 +183,10 @@ docker run \
     -e "KBD_DEVICE=${KBD_DEVICE}" \
     -e "TABLET_DEVICE=${TABLET_DEVICE}" \
     -e "RECOVERY_IMG=${RECOVERY_IMG}" \
+    -e "VNC_DISPLAY=${VNC_DISPLAY}" \
     --entrypoint /bin/bash \
     "${IMAGE}" \
-    -s > "${HOST_LOG}" 2>&1 <<'EOF_INNER'
-set -euo pipefail
-SERIAL_LOG=/data/logs/test-magic-recovery-safe-${TS}.serial.log
-SCREENSHOT=/data/logs/test-magic-recovery-safe-${TS}.png
-QMP_SOCK=/data/run/${QMP_SOCK_NAME}
-mkdir -p /data/logs /data/run
-rm -f "$QMP_SOCK"
-
-echo "[guest-side] starting QEMU; timeout=${QEMU_TIMEOUT_SEC}s"
-
-# Background the screenshot grab: at T-10s, ask QMP for a screendump.
-(
-    sleep $((QEMU_TIMEOUT_SEC - 10))
-    if [ -S "$QMP_SOCK" ]; then
-        {
-            printf '%s\n' '{"execute":"qmp_capabilities"}'
-            printf '%s\n' "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"${SCREENSHOT}\"}}"
-            sleep 1
-        } | socat - UNIX-CONNECT:"$QMP_SOCK" 2>/dev/null || true
-    fi
-) &
-
-rc=0
-timeout --signal=TERM --kill-after=15 "$QEMU_TIMEOUT_SEC" \
-    qemu-system-x86_64 \
-        -enable-kvm \
-        -m "$GUEST_MEM" \
-        -smp "${GUEST_SMP},cores=${GUEST_SMP}" \
-        -machine q35 \
-        -cpu host,vendor=GenuineIntel,vmware-cpuid-freq=on \
-        -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
-        -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd \
-        -smbios type=2 \
-        -global ICH9-LPC.disable_s3=1 \
-        -global ICH9-LPC.disable_s4=1 \
-        -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off \
-        -device 'isa-applesmc,osk=ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc' \
-        -device qemu-xhci,id=xhci \
-        -device "$KBD_DEVICE",bus=xhci.0 \
-        -device "$TABLET_DEVICE",bus=xhci.0 \
-        -device ich9-ahci,id=sata \
-        -drive id=OpenCoreBoot,if=none,format=raw,file=/magic-test/OpenCore.img,snapshot=on \
-        -device ide-hd,bus=sata.2,drive=OpenCoreBoot \
-        -drive id=Recovery,if=none,format=raw,file=/magic-test/${RECOVERY_IMG},snapshot=on \
-        -device virtio-blk-pci,drive=Recovery \
-        -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on \
-        -display none \
-        -vnc 127.0.0.1:84 \
-        -chardev "file,id=serial_file,path=${SERIAL_LOG},append=off" \
-        -serial chardev:serial_file \
-        -qmp "unix:${QMP_SOCK},server=on,wait=off" \
-        -no-reboot \
-    || rc=$?
-echo "[guest-side] QEMU exited rc=${rc}"
-EOF_INNER
+    /inner.sh > "${HOST_LOG}" 2>&1
 
 echo "Container ${CONTAINER_NAME} launched (detached)."
 echo ""

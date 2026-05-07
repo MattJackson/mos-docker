@@ -156,19 +156,28 @@ run_phase() {
 
     [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s; checking stability..."
 
-    # For phases 1-3 (login screen): wait for loginwindow PID to STABILIZE.
-    # First `loginwindow (PID)` doesn't mean the UI is rendered — macOS keeps
-    # respawning loginwindow during MobileSoftwareUpdate cycles for several
-    # minutes. Wait until the latest loginwindow PID hasn't changed for
-    # STABILITY_SECS (default 30s). Phase 0 (UEFI shell) skips this — its
-    # boot marker is the final state.
+    # For phases 1-3 (login screen): wait for the framebuffer to actually
+    # show the login UI (not just the boot logo).
+    #
+    # First `loginwindow (PID)` in serial appears ~5min into boot, but the
+    # process is just sitting waiting for WindowServer — UI hasn't painted.
+    # macOS then cycles loginwindow respawns during MobileSoftwareUpdate
+    # for several more minutes before settling.
+    #
+    # Compromise: wait MIN_LOGIN_SETTLE_SECS (default 240s = 4 min) AFTER
+    # first loginwindow before considering the system stable, AND require
+    # loginwindow PID hasn't changed for STABILITY_SECS (default 60s) at
+    # that point. Cap total wait at STABILITY_TIMEOUT (default 720s = 12 min).
+    #
+    # Phase 0 (UEFI shell) skips all this — its boot marker IS the final state.
     case "$phase" in
         1|2|3)
-            local stability_secs="${STABILITY_SECS:-30}"
-            local stability_timeout="${STABILITY_TIMEOUT:-600}"  # cap at 10 min
+            local min_settle="${MIN_LOGIN_SETTLE_SECS:-240}"
+            local stability_secs="${STABILITY_SECS:-60}"
+            local stability_timeout="${STABILITY_TIMEOUT:-720}"
+            local first_login_ts=$(date +%s)
             local last_pid=""
-            local stable_since=0
-            local stability_start=$(date +%s)
+            local stable_since=$first_login_ts
             while true; do
                 local now=$(date +%s)
                 local current_pid
@@ -183,17 +192,18 @@ run_phase() {
                     [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$current_pid (respawned, restarting stability clock)"
                 fi
                 local stable_for=$((now - stable_since))
-                if [ "$stable_for" -ge "$stability_secs" ]; then
-                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$last_pid stable for ${stable_for}s — capturing"
+                local settle_for=$((now - first_login_ts))
+                if [ "$settle_for" -ge "$min_settle" ] && [ "$stable_for" -ge "$stability_secs" ]; then
+                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$last_pid stable for ${stable_for}s, settled ${settle_for}s — capturing"
                     break
                 fi
-                if [ $((now - stability_start)) -gt "$stability_timeout" ]; then
-                    echo "[runner] phase $phase: FAIL — loginwindow never stabilized (${stability_timeout}s) — last PID=$last_pid"
+                if [ "$settle_for" -gt "$stability_timeout" ]; then
+                    echo "[runner] phase $phase: FAIL — loginwindow never stabilized within ${stability_timeout}s — last PID=$last_pid"
                     echo "  full serial: $serial_log"
                     teardown "$container"
                     return 1
                 fi
-                sleep 5
+                sleep 10
             done
             ;;
         *)

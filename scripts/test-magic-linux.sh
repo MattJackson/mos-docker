@@ -150,6 +150,7 @@ echo "                Alpine ISO:     ${ALPINE_ISO_BASENAME}"
 # `docker run`.
 docker run \
     --rm -i \
+    --privileged \
     --cpus="${CONTAINER_CPUS}" \
     --memory="${CONTAINER_MEM}" \
     --memory-swap="${CONTAINER_MEM}" \

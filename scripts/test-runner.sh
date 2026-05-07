@@ -79,6 +79,10 @@ run_phase() {
     local container="mos-runner-phase${phase}"
     local serial_glob="$DATA_DIR/logs/serial-phase${phase}-*.log"
     local qmp_sock="$DATA_DIR/run/qemu-phase${phase}-qmp.sock"
+    # screendump path must be container-internal — QEMU runs INSIDE the
+    # container where /data/run/ is the mount; reading happens from the
+    # corresponding host path /mnt/docker/mos-data/run/.
+    local ppm_in_container="/data/run/phase${phase}-runner.ppm"
     local ppm="$DATA_DIR/run/phase${phase}-runner.ppm"
     local png="$DATA_DIR/run/phase${phase}-runner.png"
     local diff_png="$DATA_DIR/run/phase${phase}-runner-diff.png"
@@ -97,15 +101,24 @@ run_phase() {
         --entrypoint /scripts/test.sh \
         "$TEST_IMAGE" "$phase" >/dev/null
 
-    # Wait for the serial log to appear.
+    # Wait for a serial log created AFTER we launched (avoid picking up
+    # stale logs from prior runs that may contain unrelated panic markers).
     local serial_log=""
     for _ in $(seq 1 60); do
-        serial_log=$(sudo sh -c "ls -t $serial_glob 2>/dev/null | head -1")
-        [ -n "$serial_log" ] && break
+        local candidate
+        candidate=$(sudo sh -c "ls -t $serial_glob 2>/dev/null | head -1")
+        if [ -n "$candidate" ]; then
+            local log_mtime
+            log_mtime=$(sudo stat -c%Y "$candidate" 2>/dev/null || echo 0)
+            if [ "$log_mtime" -ge "$start_ts" ]; then
+                serial_log="$candidate"
+                break
+            fi
+        fi
         sleep 1
     done
     if [ -z "$serial_log" ]; then
-        echo "[runner] phase $phase: FAIL — no serial log appeared in 60s"
+        echo "[runner] phase $phase: FAIL — no fresh serial log appeared in 60s (stale logs may exist)"
         teardown "$container"
         return 1
     fi
@@ -141,8 +154,9 @@ run_phase() {
     [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s, settling ${SETTLE_SECS}s..."
     sleep "$SETTLE_SECS"
 
-    # Capture framebuffer via QMP screendump.
-    if ! sudo bash -c "echo screendump $ppm | socat - UNIX-CONNECT:$qmp_sock" >/dev/null 2>&1; then
+    # Capture framebuffer via QMP screendump. Use the container-internal
+    # path because QEMU is running inside the container.
+    if ! sudo bash -c "echo screendump $ppm_in_container | socat - UNIX-CONNECT:$qmp_sock" >/dev/null 2>&1; then
         echo "[runner] phase $phase: FAIL — QMP screendump failed (socket missing or no display surface)"
         echo "  This may mean the guest never created a DisplaySurface (e.g. apple-gfx-pci with no opcodes)."
         teardown "$container"

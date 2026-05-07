@@ -78,7 +78,10 @@ run_phase() {
 
     local container="mos-runner-phase${phase}"
     local serial_glob="$DATA_DIR/logs/serial-phase${phase}-*.log"
-    local qmp_sock="$DATA_DIR/run/qemu-phase${phase}-qmp.sock"
+    # screendump uses HMP (`echo screendump <path>`), not QMP (which is JSON).
+    # test.sh creates both sockets — HMP on qemu-phaseN-monitor.sock, QMP on
+    # qemu-phaseN-qmp.sock. Use HMP for human-readable command syntax.
+    local hmp_sock="$DATA_DIR/run/qemu-phase${phase}-monitor.sock"
     # screendump path must be container-internal — QEMU runs INSIDE the
     # container where /data/run/ is the mount; reading happens from the
     # corresponding host path /mnt/docker/mos-data/run/.
@@ -154,9 +157,9 @@ run_phase() {
     [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s, settling ${SETTLE_SECS}s..."
     sleep "$SETTLE_SECS"
 
-    # Capture framebuffer via QMP screendump. Use the container-internal
+    # Capture framebuffer via HMP screendump. Use the container-internal
     # path because QEMU is running inside the container.
-    if ! sudo bash -c "echo screendump $ppm_in_container | socat - UNIX-CONNECT:$qmp_sock" >/dev/null 2>&1; then
+    if ! sudo bash -c "echo screendump $ppm_in_container | socat - UNIX-CONNECT:$hmp_sock" >/dev/null 2>&1; then
         echo "[runner] phase $phase: FAIL — QMP screendump failed (socket missing or no display surface)"
         echo "  This may mean the guest never created a DisplaySurface (e.g. apple-gfx-pci with no opcodes)."
         teardown "$container"

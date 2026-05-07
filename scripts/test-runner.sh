@@ -154,8 +154,52 @@ run_phase() {
         sleep 5
     done
 
-    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s, settling ${SETTLE_SECS}s..."
-    sleep "$SETTLE_SECS"
+    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s; checking stability..."
+
+    # For phases 1-3 (login screen): wait for loginwindow PID to STABILIZE.
+    # First `loginwindow (PID)` doesn't mean the UI is rendered — macOS keeps
+    # respawning loginwindow during MobileSoftwareUpdate cycles for several
+    # minutes. Wait until the latest loginwindow PID hasn't changed for
+    # STABILITY_SECS (default 30s). Phase 0 (UEFI shell) skips this — its
+    # boot marker is the final state.
+    case "$phase" in
+        1|2|3)
+            local stability_secs="${STABILITY_SECS:-30}"
+            local stability_timeout="${STABILITY_TIMEOUT:-600}"  # cap at 10 min
+            local last_pid=""
+            local stable_since=0
+            local stability_start=$(date +%s)
+            while true; do
+                local now=$(date +%s)
+                local current_pid
+                current_pid=$(sudo grep -oE 'loginwindow \([0-9]+\)' "$serial_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
+                if [ -z "$current_pid" ]; then
+                    sleep 5
+                    continue
+                fi
+                if [ "$current_pid" != "$last_pid" ]; then
+                    last_pid=$current_pid
+                    stable_since=$now
+                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$current_pid (respawned, restarting stability clock)"
+                fi
+                local stable_for=$((now - stable_since))
+                if [ "$stable_for" -ge "$stability_secs" ]; then
+                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$last_pid stable for ${stable_for}s — capturing"
+                    break
+                fi
+                if [ $((now - stability_start)) -gt "$stability_timeout" ]; then
+                    echo "[runner] phase $phase: FAIL — loginwindow never stabilized (${stability_timeout}s) — last PID=$last_pid"
+                    echo "  full serial: $serial_log"
+                    teardown "$container"
+                    return 1
+                fi
+                sleep 5
+            done
+            ;;
+        *)
+            sleep "$SETTLE_SECS"
+            ;;
+    esac
 
     # Capture framebuffer via HMP screendump. Use the container-internal
     # path because QEMU is running inside the container.
@@ -193,11 +237,17 @@ run_phase() {
         | tail -1)
     sudo cp "$diff_png" "$DIFF_OVERLAY" 2>/dev/null || true
 
-    if [[ ! "$diff_count" =~ ^[0-9]+$ ]]; then
+    # ImageMagick reports the count as scientific notation when large
+    # (e.g. `1.85972e+06`). Normalize via awk to a plain integer so the
+    # comparison below works.
+    local diff_int
+    diff_int=$(awk "BEGIN { printf \"%d\", $diff_count }" 2>/dev/null || echo "")
+    if [[ ! "$diff_int" =~ ^[0-9]+$ ]]; then
         echo "[runner] phase $phase: FAIL — image compare error: $diff_count"
         teardown "$container"
         return 1
     fi
+    diff_count=$diff_int
 
     local threshold_px=$((TOTAL_PX * DIFF_THRESHOLD_PCT / 100))
     local pct

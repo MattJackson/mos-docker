@@ -57,12 +57,21 @@ RECOVERY_SIZE=$(stat -Lc%s "$RECOVERY")
 echo "Recovery image: $RECOVERY ($(numfmt --to=iec "$RECOVERY_SIZE"))"
 
 # --- Stage OpenCore.img -------------------------------------------------
+# OpenCore.img is built from efi/ at docker build time and shipped at
+# /usr/share/mos-docker/OpenCore.img. We copy it into /data on first run
+# and leave it alone after — operators can point at a custom image by
+# dropping their own at $DATA/OpenCore.img before invoking install.
+BUILTIN_OPENCORE="/usr/share/mos-docker/OpenCore.img"
 if [ ! -f "$OPENCORE" ]; then
-    echo
-    echo "OpenCore.img not found at $OPENCORE."
-    echo "  Drop a built OpenCore EFI image (~512 MB FAT32) at this path."
-    echo "  Build instructions: SETUP.md → 'Build OpenCore.img'"
-    exit 1
+    if [ -f "$BUILTIN_OPENCORE" ]; then
+        echo "Staging OpenCore.img from image-builtin source."
+        cp "$BUILTIN_OPENCORE" "$OPENCORE"
+    else
+        echo
+        echo "OpenCore.img not found at $OPENCORE and no builtin image present."
+        echo "  Build instructions: SETUP.md → 'Build OpenCore.img'"
+        exit 1
+    fi
 fi
 OPENCORE_SIZE=$(stat -Lc%s "$OPENCORE")
 echo "OpenCore image: $OPENCORE ($(numfmt --to=iec "$OPENCORE_SIZE"))"

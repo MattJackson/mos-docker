@@ -85,6 +85,30 @@ RUN --mount=type=cache,target=/root/.ccache \
     && ccache -s || true
 
 # ---------------------------------------------------------------------------
+# OpenCore.img builder
+# ---------------------------------------------------------------------------
+# Builds a 512 MB FAT32 EFI image from `efi/EFI/` in the repo. This is the
+# single source of truth for the bootloader config; the resulting .img is
+# embedded in the runtime image at /usr/share/mos-docker/OpenCore.img and
+# install.sh/entrypoint.sh copy it to /data/OpenCore.img on first run.
+# Rebuilds whenever any file under efi/ changes.
+FROM alpine:3.21 AS opencore-builder
+RUN apk add --no-cache dosfstools mtools
+COPY efi /tmp/efi
+RUN truncate -s 512M /tmp/OpenCore.img \
+    && mkfs.vfat -F 32 -n OPENCORE /tmp/OpenCore.img \
+    && mmd -i /tmp/OpenCore.img ::EFI \
+    && mmd -i /tmp/OpenCore.img ::EFI/BOOT \
+    && mmd -i /tmp/OpenCore.img ::EFI/OC \
+    && for d in /tmp/efi/EFI/BOOT /tmp/efi/EFI/OC; do \
+           cd "$d" && find . -type d ! -path . | while read sub; do \
+               mmd -i /tmp/OpenCore.img "::EFI/$(basename $d)/${sub#./}" 2>/dev/null || true; \
+           done; \
+       done \
+    && cd /tmp/efi && find EFI -type f -exec mcopy -i /tmp/OpenCore.img {} ::{} \; \
+    && echo "OpenCore.img built ($(stat -c%s /tmp/OpenCore.img) bytes from $(find efi -type f | wc -l) source files)"
+
+# ---------------------------------------------------------------------------
 # Final runtime image
 # ---------------------------------------------------------------------------
 FROM alpine:3.21
@@ -105,6 +129,11 @@ COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
 COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
 COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
 COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
+
+# OpenCore.img built from efi/ in the repo. install.sh / entrypoint.sh
+# stage this to /data/OpenCore.img on first run; the in-image copy stays
+# as the canonical reference.
+COPY --from=opencore-builder /tmp/OpenCore.img /usr/share/mos-docker/OpenCore.img
 
 # Clean OVMF_VARS template for NVRAM reset.
 RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd

@@ -25,11 +25,16 @@ if [ "$DISK_SIZE" -lt 1048576 ]; then
     exit 1
 fi
 
+BUILTIN_OPENCORE="/usr/share/mos-docker/OpenCore.img"
 if [ ! -f "$OPENCORE" ]; then
-    echo "ERROR: $OPENCORE does not exist." >&2
-    echo "  Drop an OpenCore EFI image at \$HOST_MOS_DATA/OpenCore.img." >&2
-    echo "  Build instructions: SETUP.md" >&2
-    exit 1
+    if [ -f "$BUILTIN_OPENCORE" ]; then
+        echo "Staging OpenCore.img from image-builtin source."
+        cp "$BUILTIN_OPENCORE" "$OPENCORE"
+    else
+        echo "ERROR: $OPENCORE does not exist and no builtin image present." >&2
+        echo "  Drop an OpenCore EFI image at \$HOST_MOS_DATA/OpenCore.img." >&2
+        exit 1
+    fi
 fi
 
 # --- Boot diagnostics setup -------------------------------------------

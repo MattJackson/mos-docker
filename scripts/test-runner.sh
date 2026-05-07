@@ -34,17 +34,27 @@ TEST_IMAGE="${TEST_IMAGE:-mos-docker:test}"
 RES_W=1920; RES_H=1080
 TOTAL_PX=$((RES_W * RES_H))
 
-# Per-phase config.
+# Per-phase config.  Settle + threshold values calibrated 2026-05-06 via
+# scripts/calibrate-phase.sh (see commit log).  Re-run calibration if a
+# phase's boot timing changes (resource bump, OS update, etc).
+#
+#   phase  login-rendered@  max-diff%  → settle  threshold
+#   0      ~10s (UEFI)       0.74%       15s     1%
+#   1      143s              0.59%       200s    1.5%
+#   2      138s              0.64%       200s    1.5%
+#   3      153s              0.65%       200s    1.5%
 phase_config() {
     local phase=$1
     case "$phase" in
         0)
             BOOT_MARKER='UEFI Interactive Shell|EDK II'
-            DIFF_THRESHOLD_PCT=1   # static UEFI text on black
+            PHASE_SETTLE=15
+            DIFF_THRESHOLD_PCT=1
             ;;
         1|2|3)
             BOOT_MARKER='loginwindow \([0-9]+\)'
-            DIFF_THRESHOLD_PCT=8   # accommodates clock + cursor + login-UI variance
+            PHASE_SETTLE=200
+            DIFF_THRESHOLD_PCT=2   # 2% gives ~3x headroom over max observed (0.65%)
             ;;
         4)
             echo "phase 4: apple-gfx-pci paravirt — no gold (M5 stage 20% gate)" >&2
@@ -154,62 +164,8 @@ run_phase() {
         sleep 5
     done
 
-    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s; checking stability..."
-
-    # For phases 1-3 (login screen): wait for the framebuffer to actually
-    # show the login UI (not just the boot logo).
-    #
-    # First `loginwindow (PID)` in serial appears ~5min into boot, but the
-    # process is just sitting waiting for WindowServer — UI hasn't painted.
-    # macOS then cycles loginwindow respawns during MobileSoftwareUpdate
-    # for several more minutes before settling.
-    #
-    # Compromise: wait MIN_LOGIN_SETTLE_SECS (default 240s = 4 min) AFTER
-    # first loginwindow before considering the system stable, AND require
-    # loginwindow PID hasn't changed for STABILITY_SECS (default 60s) at
-    # that point. Cap total wait at STABILITY_TIMEOUT (default 720s = 12 min).
-    #
-    # Phase 0 (UEFI shell) skips all this — its boot marker IS the final state.
-    case "$phase" in
-        1|2|3)
-            local min_settle="${MIN_LOGIN_SETTLE_SECS:-240}"
-            local stability_secs="${STABILITY_SECS:-60}"
-            local stability_timeout="${STABILITY_TIMEOUT:-720}"
-            local first_login_ts=$(date +%s)
-            local last_pid=""
-            local stable_since=$first_login_ts
-            while true; do
-                local now=$(date +%s)
-                local current_pid
-                current_pid=$(sudo grep -oE 'loginwindow \([0-9]+\)' "$serial_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
-                if [ -z "$current_pid" ]; then
-                    sleep 5
-                    continue
-                fi
-                if [ "$current_pid" != "$last_pid" ]; then
-                    last_pid=$current_pid
-                    stable_since=$now
-                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$current_pid (respawned, restarting stability clock)"
-                fi
-                local stable_for=$((now - stable_since))
-                local settle_for=$((now - first_login_ts))
-                if [ "$settle_for" -ge "$min_settle" ] && [ "$stable_for" -ge "$stability_secs" ]; then
-                    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: loginwindow PID=$last_pid stable for ${stable_for}s, settled ${settle_for}s — capturing"
-                    break
-                fi
-                if [ "$settle_for" -gt "$stability_timeout" ]; then
-                    echo "[runner] phase $phase: FAIL — loginwindow never stabilized within ${stability_timeout}s — last PID=$last_pid"
-                    echo "  full serial: $serial_log"
-                    teardown "$container"
-                    return 1
-                fi
-                sleep 10
-            done
-            ;;
-        *)
-            sleep "$SETTLE_SECS"
-            ;;
-    esac
+    [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: boot marker hit at ${boot_time}s, settling ${PHASE_SETTLE}s..."
+    sleep "$PHASE_SETTLE"
 
     # Capture framebuffer via HMP screendump. Use the container-internal
     # path because QEMU is running inside the container.

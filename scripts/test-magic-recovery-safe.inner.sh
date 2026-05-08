@@ -21,12 +21,23 @@ set -euo pipefail
 : "${TABLET_DEVICE:?TABLET_DEVICE env var required}"
 : "${RECOVERY_IMG:?RECOVERY_IMG env var required}"
 : "${VNC_DISPLAY:=84}"
+: "${VNC_PORT:=$(( 5900 + VNC_DISPLAY ))}"
+: "${WEBSOCKIFY_PORT:=$(( 6000 + VNC_DISPLAY ))}"
 
 SERIAL_LOG=/data/logs/test-magic-recovery-safe-${TS}.serial.log
 SCREENSHOT=/data/logs/test-magic-recovery-safe-${TS}.png
 QMP_SOCK=/data/run/${QMP_SOCK_NAME}
 mkdir -p /data/logs /data/run
 rm -f "$QMP_SOCK"
+
+# Start websockify so the operator can hit
+# http://docker.internal.pq.io:${WEBSOCKIFY_PORT}/vnc.html?autoconnect=1
+# without any post-launch docker exec ceremony. websockify will fail to
+# connect until QEMU's VNC server binds (a couple of seconds), but the
+# noVNC client retries cleanly.
+websockify --web=/usr/share/novnc \
+    "0.0.0.0:${WEBSOCKIFY_PORT}" "127.0.0.1:${VNC_PORT}" \
+    >/data/logs/test-magic-recovery-safe-${TS}.websockify.log 2>&1 &
 
 echo "[guest-side] starting QEMU; timeout=${QEMU_TIMEOUT_SEC}s; KBD=${KBD_DEVICE} TABLET=${TABLET_DEVICE}"
 
@@ -66,7 +77,7 @@ timeout --signal=TERM --kill-after=15 "$QEMU_TIMEOUT_SEC" \
         -device virtio-blk-pci,drive=Recovery \
         -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on \
         -display none \
-        -vnc "127.0.0.1:${VNC_DISPLAY}" \
+        -vnc "127.0.0.1:${VNC_DISPLAY},share=force-shared" \
         -chardev "file,id=serial_file,path=${SERIAL_LOG},append=off" \
         -serial chardev:serial_file \
         -qmp "unix:${QMP_SOCK},server=on,wait=off" \

@@ -81,15 +81,9 @@ QEMU_TIMEOUT_SEC="${MOS_QEMU_TIMEOUT_SEC:-300}"  # 5m default; override via env 
 TS="$(date +%Y%m%d-%H%M%S)"
 CONTAINER_NAME="mos-magic-recovery-${TS}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# VNC_DISPLAY: HID lane reserved range is :84..:89 (per
-# feedback_lane_discipline_phase1_vs_m5.md). M5 prod uses :0
-# (port 5900); M5 phase4 test uses :4 (port 5904); never collide.
-# Default to :84 so the operator-visible URL is stable at
-# http://docker.internal.pq.io:6084/vnc.html (per
-# feedback_apple_hid_novnc_convention.md).
-VNC_DISPLAY="${MOS_VNC_DISPLAY:-84}"
-VNC_PORT=$(( 5900 + VNC_DISPLAY ))
-WEBSOCKIFY_PORT=$(( 6000 + VNC_DISPLAY ))
+# VNC_DISPLAY: avoids collision with M5 prod (5900) and M5 phase4 test (5904).
+# Use last 2 digits of YYMMDD-HHMMSS-style seconds as a low-collision pick.
+VNC_DISPLAY="${MOS_VNC_DISPLAY:-$(( ( $(date +%s) % 100 ) + 80 ))}"
 LOG_DIR="${HOST_DATA}/logs"
 RUN_DIR="${HOST_DATA}/run"
 mkdir -p "${LOG_DIR}" "${RUN_DIR}"
@@ -178,8 +172,6 @@ docker run \
     --memory="${CONTAINER_MEM}" \
     --memory-swap="${CONTAINER_MEM}" \
     --device /dev/kvm:/dev/kvm \
-    -p "${VNC_PORT}:${VNC_PORT}" \
-    -p "${WEBSOCKIFY_PORT}:${WEBSOCKIFY_PORT}" \
     -v "${HOST_DATA}:/data" \
     -v "${MAGIC_DATA}:/magic-test:ro" \
     -v "${SCRIPT_DIR}/test-magic-recovery-safe.inner.sh:/inner.sh:ro" \
@@ -192,22 +184,20 @@ docker run \
     -e "TABLET_DEVICE=${TABLET_DEVICE}" \
     -e "RECOVERY_IMG=${RECOVERY_IMG}" \
     -e "VNC_DISPLAY=${VNC_DISPLAY}" \
-    -e "VNC_PORT=${VNC_PORT}" \
-    -e "WEBSOCKIFY_PORT=${WEBSOCKIFY_PORT}" \
     --entrypoint /bin/bash \
     "${IMAGE}" \
     /inner.sh > "${HOST_LOG}" 2>&1
 
 echo "Container ${CONTAINER_NAME} launched (detached)."
 echo ""
-echo "Watch via noVNC:"
-echo "  http://docker.internal.pq.io:${WEBSOCKIFY_PORT}/vnc.html?autoconnect=1"
-echo ""
 echo "Stream container logs:"
 echo "  docker logs -f ${CONTAINER_NAME}"
 echo ""
 echo "Stream guest serial (host-side, live):"
 echo "  tail -F ${SERIAL_LOG}"
+echo ""
+echo "noVNC port forward (run separately if you want to watch):"
+echo "  docker exec ${CONTAINER_NAME} websockify --web=/usr/share/novnc 6084 127.0.0.1:5984 &"
 echo ""
 echo "When done (or after a hang):"
 echo "  docker stop ${CONTAINER_NAME} || docker kill ${CONTAINER_NAME}"

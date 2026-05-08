@@ -181,17 +181,17 @@ if [ "$PHASE" = "0" ]; then
         -device virtio-blk-pci,drive=disk0
     )
 else
-    # locking=off on MacHDD: phases 1-4 always set snapshot=on, so QEMU
-    # writes go to the per-run overlay and the raw backing is read-only
-    # in practice. Disabling the host-file lock lets a phase test run
-    # concurrently with production (which also attaches /data/disk.img
-    # under snapshot=on / `MOS_PERSIST=0`). Without this, the second
-    # QEMU fails with "Failed to get shared write lock".
+    # snapshot=on writes go to a per-run overlay; raw backing stays
+    # read-only. file.locking=off lets a phase test attach the disk
+    # concurrently with production (which also has it under snapshot=on
+    # / MOS_PERSIST=0). The full nested-driver form is required because
+    # `locking` lives on the protocol (file) driver, not the format
+    # (raw) driver.
     COMMON_ARGS+=(
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on,file.locking=off"
+        -drive "id=MacHDD,if=none,driver=raw,file.driver=file,file.filename=$DISK,file.locking=off,cache.direct=on,aio=native,snapshot=on"
         -device virtio-blk-pci,drive=MacHDD
     )
 fi

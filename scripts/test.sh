@@ -185,7 +185,13 @@ else
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on"
+        # file.locking=off lets phases run concurrently with each other +
+        # with prod. Safe ONLY because snapshot=on (just below) sends every
+        # write to a per-run RAM overlay; the underlying disk.img is never
+        # mutated. If you ever remove snapshot=on here, restore locking or
+        # you will silently corrupt disk.img when two phases (or prod) run
+        # at once. test.sh deliberately doesn't honor MOS_PERSIST.
+        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on,file.locking=off"
         -device virtio-blk-pci,drive=MacHDD
     )
 fi

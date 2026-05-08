@@ -80,6 +80,15 @@ if [ "$PHASE" = "1" ]; then
     QEMU_BIN=/usr/bin/qemu-system-x86_64-oem
 fi
 
+# Auto-stage OpenCore.img from the in-image canonical copy on first run.
+# Same logic as install.sh / run.sh — keeps source-of-truth in efi/ and
+# the deployed image always matches what's in the repo.
+BUILTIN_OPENCORE="/usr/share/mos-docker/OpenCore.img"
+if [ ! -f "$OPENCORE" ] && [ -f "$BUILTIN_OPENCORE" ]; then
+    echo "Staging OpenCore.img from image-builtin source."
+    cp "$BUILTIN_OPENCORE" "$OPENCORE"
+fi
+
 # Sanity / data checks per phase.
 if [ "$PHASE" -ge 1 ]; then
     [ -f "$DISK" ]      || { echo "ERROR: $DISK missing — phase $PHASE needs the macOS disk." >&2; exit 1; }

@@ -86,7 +86,11 @@ run_phase() {
     local phase=$1
     phase_config "$phase" || return $?
 
-    local container="mos-runner-phase${phase}"
+    # Container name carries a unique per-invocation suffix so two
+    # concurrent `./mos verify N` invocations (e.g. M5 lane + HID lane
+    # both probing the same phase) don't collide on `--name`. Suffix
+    # is HHMMSS+PID — collision-resistant within the same second.
+    local container="mos-runner-phase${phase}-$(date +%H%M%S)-$$"
     local serial_glob="$DATA_DIR/logs/serial-phase${phase}-*.log"
     # screendump uses HMP (`echo screendump <path>`), not QMP (which is JSON).
     # test.sh creates both sockets — HMP on qemu-phaseN-monitor.sock, QMP on

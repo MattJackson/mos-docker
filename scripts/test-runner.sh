@@ -111,6 +111,8 @@ run_phase() {
         --memory 20g --cpus 20 \
         -v "$DATA_DIR":/data \
         -v "$BASELINES_DIR":/baselines \
+        ${KBD_DEVICE:+-e KBD_DEVICE="$KBD_DEVICE"} \
+        ${TABLET_DEVICE:+-e TABLET_DEVICE="$TABLET_DEVICE"} \
         --entrypoint /scripts/test.sh \
         "$TEST_IMAGE" "$phase" >/dev/null
 

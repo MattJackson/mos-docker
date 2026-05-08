@@ -44,3 +44,4 @@ libapplegfx-vulkan*/
 # Agent scratch / archive directories
 _archive_*/
 scripts/__pycache__/
+*.dylib

@@ -154,18 +154,24 @@ if [ "$PHASE" -ge 1 ]; then
     )
 fi
 
-# USB HID — all phases use generic usb-kbd / usb-tablet for now.
+# USB HID — env-tunable. Defaults to generic usb-kbd / usb-tablet so
+# existing phase-3 baseline behaviour is unchanged. Override to exercise
+# the Apple-vendor-HID emulators (`apple-magic-keyboard` PID 0x026c /
+# `apple-magic-tablet` PID 0x0265) as the regression gate before a
+# downstream switch in run.sh / install.sh:
 #
-# The previous apple-kbd / apple-tablet wrappers (Package D) were
-# descriptor-only spoofs that broke macOS recovery's HID stack and
-# have been withdrawn 2026-05-07. The replacement device,
-# `apple-magic-keyboard` (PID 0x026c, Apple vendor HID protocol),
-# is in development; once Phase 0 lands and proves out, phases
-# 3+ can switch to it.
+#     KBD_DEVICE=apple-magic-keyboard \
+#     TABLET_DEVICE=apple-magic-tablet \
+#     ./mos verify 3
+#
+# A green phase-3 under those overrides is the green light to flip the
+# install/run path. A red phase-3 is a regression that blocks the flip.
+KBD_DEVICE="${KBD_DEVICE:-usb-kbd}"
+TABLET_DEVICE="${TABLET_DEVICE:-usb-tablet}"
 COMMON_ARGS+=(
     -device qemu-xhci,id=xhci
-    -device usb-kbd,bus=xhci.0
-    -device usb-tablet,bus=xhci.0
+    -device "${KBD_DEVICE},bus=xhci.0"
+    -device "${TABLET_DEVICE},bus=xhci.0"
 )
 
 # Disk attach: phase 0 has just empty disk, phases 1-4 have macOS + OpenCore.

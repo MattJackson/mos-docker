@@ -76,7 +76,7 @@ CONTAINER_CPUS=4
 CONTAINER_MEM=4g
 GUEST_SMP=4
 GUEST_MEM=4G
-QEMU_TIMEOUT_SEC=300       # 5 minutes wall-clock
+QEMU_TIMEOUT_SEC="${MOS_QEMU_TIMEOUT_SEC:-300}"  # 5m default; override via env for keystroke validation
 
 TS="$(date +%Y%m%d-%H%M%S)"
 CONTAINER_NAME="mos-magic-recovery-${TS}"

@@ -181,18 +181,11 @@ if [ "$PHASE" = "0" ]; then
         -device virtio-blk-pci,drive=disk0
     )
 else
-    # Pre-create a per-run qcow2 overlay backed by disk.img. The phase
-    # test attaches the overlay (its own file, no lock fight with prod)
-    # and reads cascade through to disk.img read-only. snapshot=on on
-    # the overlay keeps the overlay itself ephemeral so back-to-back
-    # phase runs don't accumulate state.
-    PHASE_OVERLAY="$RUN_DIR/machdd-phase${PHASE}-${BOOT_TS}.qcow2"
-    qemu-img create -f qcow2 -F raw -b "$DISK" "$PHASE_OVERLAY" >/dev/null
     COMMON_ARGS+=(
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-        -drive "id=MacHDD,if=none,format=qcow2,file=$PHASE_OVERLAY,cache=none,aio=native,snapshot=on"
+        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on"
         -device virtio-blk-pci,drive=MacHDD
     )
 fi

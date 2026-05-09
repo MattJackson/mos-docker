@@ -120,7 +120,7 @@ AGPL-3.0. See [LICENSE](LICENSE).
 
 - **[mos-docs](https://github.com/MattJackson/mos-docs)** — project-wide documentation library: vision, architecture, whitepapers, reference. Read this if you want the *why*; this README is the *how*.
 - [mos](https://github.com/MattJackson/mos) — RE notes (`paravirt-re/`), kext sources, milestones, project memory
-- [mos-qemu](https://github.com/MattJackson/mos-qemu) — QEMU 10.2.2 fork with `apple-gfx-pci` + `applesmc` + `dev-hid` patches
+- [mos-qemu](https://github.com/MattJackson/mos-qemu) — QEMU 11.0.0 fork with `apple-gfx-pci` + `applesmc` + `dev-hid` patches
 - [libapplegfx-vulkan](https://github.com/MattJackson/libapplegfx-vulkan) — host-side paravirt GPU library (Vulkan/lavapipe backend)
 - [mos-patcher](https://github.com/MattJackson/mos-patcher) — Lilu plugin (per-instance vtable swap on Sequoia)
 - [mos-opencore](https://github.com/MattJackson/mos-opencore) — OpenCore EFI image build script

@@ -2,7 +2,7 @@
 # mos-docker — TEST image (production + OEM QEMU + screenshot capture).
 #
 # Inherits the production image (mos-docker:latest) and adds:
-#   - OEM upstream-vanilla QEMU 10.2.2 binary at /usr/bin/qemu-system-x86_64-oem
+#   - OEM upstream-vanilla QEMU 11.0.0 binary at /usr/bin/qemu-system-x86_64-oem
 #     (used by phase 1 of the regression chain to bisect "is the patched
 #     binary the regression cause?")
 #   - chromium + xvfb for headless noVNC screenshot capture
@@ -12,9 +12,9 @@
 # Production deployments should NOT use this image — it's larger and ships
 # extra binaries that production doesn't need.
 
-ARG QEMU_VERSION=10.2.2
+ARG QEMU_VERSION=11.0.0
 
-# OEM (unpatched upstream) QEMU 10.2.2 builder.
+# OEM (unpatched upstream) QEMU 11.0.0 builder.
 FROM alpine:3.21 AS oem-builder
 ARG QEMU_VERSION
 
@@ -32,7 +32,7 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
     CCACHE_COMPILERCHECK=content \
     CCACHE_NOHASHDIR=1
 
-ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
+ADD https://download.qemu.org/qemu-11.0.0.tar.xz /tmp/qemu-upstream.tar.xz
 
 # ccache is content-hashed (safe across source changes); the meson build dir
 # is not (mtime-based, mis-decides on cached `.o` reuse — see lessons below).

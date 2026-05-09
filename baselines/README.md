@@ -20,7 +20,7 @@ the gold within an ImageMagick perceptual-diff threshold.
 
 ## Bare-min stack (Phase 1+)
 
-The minimum config that reaches macOS login on stock QEMU 10.2.2:
+The minimum config that reaches macOS login on stock QEMU 11.0.0:
 
 - pflash OVMF + OpenCore.img + macOS HD (virtio-blk-pci)
 - `-device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on` (std-vga + EDID)

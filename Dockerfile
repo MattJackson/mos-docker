@@ -11,10 +11,10 @@
 # All persistent state lives in /data (bind mount required at runtime).
 # Entrypoint dispatches based on first arg: install | run | test.
 
-ARG QEMU_VERSION=10.2.2
+ARG QEMU_VERSION=11.0.0
 
 # ---------------------------------------------------------------------------
-# Builder: libapplegfx-vulkan + patched QEMU 10.2.2
+# Builder: libapplegfx-vulkan + patched QEMU 11.0.0
 # ---------------------------------------------------------------------------
 FROM alpine:3.21 AS builder
 ARG QEMU_VERSION
@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/root/.ccache \
     && ninja -C /tmp/lagfx-build install
 
 # Build QEMU with mos-qemu patches.
-ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
+ADD https://download.qemu.org/qemu-11.0.0.tar.xz /tmp/qemu-upstream.tar.xz
 ARG MOSQEMU_SHA=main
 ADD https://github.com/MattJackson/mos-qemu/archive/${MOSQEMU_SHA}.tar.gz /tmp/mos-qemu.tar.gz
 

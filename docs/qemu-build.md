@@ -1,6 +1,6 @@
 # qemu-mos15 build + iterate guide
 
-Our container image's `/usr/bin/qemu-system-x86_64` is built from QEMU 10.2.2 with our patches from `~/mos/qemu-mos15/hw/`. This doc covers **two build flows**:
+Our container image's `/usr/bin/qemu-system-x86_64` is built from QEMU 11.0.0 with our patches from `~/mos/qemu-mos15/hw/`. This doc covers **two build flows**:
 
 1. **Fast iteration** — rebuild a single `.c`, swap binary on the host, restart container (~2 min)
 2. **Full image rebuild** — rebuild the Docker image via Dockerfile (~15-20 min)
@@ -35,7 +35,7 @@ If `interpreter` says `ld-linux-x86-64.so.2`, it's a glibc build — will not ru
 ## Fast-iterate build (host + swap)
 
 Prerequisites:
-- QEMU 10.2.2 source tree on the docker host at `/tmp/qemu-10.2.2` (already there from the last image build)
+- QEMU 11.0.0 source tree on the docker host at `/tmp/qemu-11.0.0` (already there from the last image build)
 - SSH access to the docker host
 - `alpine:3.21` image pulled
 
@@ -47,10 +47,10 @@ vim ~/mos/qemu-mos15/hw/misc/applesmc.c
 
 # 2. Push the patched file to the host's QEMU tree
 scp ~/mos/qemu-mos15/hw/misc/applesmc.c \
-    docker:/tmp/qemu-10.2.2/hw/misc/applesmc.c
+    docker:/tmp/qemu-11.0.0/hw/misc/applesmc.c
 
 # 3. Build inside Alpine (only recompiles changed .c + relinks)
-ssh docker "sudo docker run --rm -v /tmp/qemu-10.2.2:/src -v /tmp:/out alpine:3.21 sh -c '
+ssh docker "sudo docker run --rm -v /tmp/qemu-11.0.0:/src -v /tmp:/out alpine:3.21 sh -c '
     set -e
     apk add --no-cache build-base python3 ninja meson pkgconf \
         glib-dev pixman-dev libcap-ng-dev libseccomp-dev \
@@ -84,7 +84,7 @@ The container restarts every 30s if QEMU fails to execute — check `sudo docker
 
 ### Correct Alpine package names (exact)
 
-These are the ones required by QEMU 10.2.2's `configure` for our feature set:
+These are the ones required by QEMU 11.0.0's `configure` for our feature set:
 
 ```
 build-base python3 ninja meson pkgconf
@@ -155,8 +155,8 @@ ssh docker "ls -la /data/macos/qemu-mos15"
   - `hw/misc/applesmc.c` — AppleSMC device with realistic iMac20,1 sensor values + key-index enumeration
   - `hw/display/vmware_vga.c` — extended VMware SVGA (4K + capability bits)
   - `hw/usb/dev-hid.c` — Apple USB HID identity (no Keyboard Setup Assistant prompt)
-- `/tmp/qemu-10.2.2/` (on docker host) — full QEMU source tree, reusable build cache
-- `/tmp/qemu-10.2.2/build-alpine/` (on docker host) — musl build output
+- `/tmp/qemu-11.0.0/` (on docker host) — full QEMU source tree, reusable build cache
+- `/tmp/qemu-11.0.0/build-alpine/` (on docker host) — musl build output
 - `/data/macos/qemu-mos15` (on docker host) — the binary the container bind-mounts
 
 See `~/mos/qemu-mos15/README.md` for the Dockerfile-based build.
@@ -222,7 +222,7 @@ memory-backend-memfd,id=mem,size=16000M,share=on
 
 ## pc-bios overlay pattern
 
-Same `cp` overlay approach as `hw/display/*` applies to `pc-bios/`. The Dockerfile copies `pc-bios/meson.build` (replaces upstream to add `apple-gfx-pci.rom` to the installed blobs list) and the ROM blob itself (`pc-bios/apple-gfx-pci.rom`, 16896 bytes) from the qemu-mos15 tarball over the freshly extracted QEMU 10.2.2 tree before `./configure`.
+Same `cp` overlay approach as `hw/display/*` applies to `pc-bios/`. The Dockerfile copies `pc-bios/meson.build` (replaces upstream to add `apple-gfx-pci.rom` to the installed blobs list) and the ROM blob itself (`pc-bios/apple-gfx-pci.rom`, 16896 bytes) from the qemu-mos15 tarball over the freshly extracted QEMU 11.0.0 tree before `./configure`.
 
 `apple-gfx-pci.rom` is Apple's extracted `AppleParavirtEFI.rom` (Phase 1.E), captured from the macOS host and shipped as the default option ROM for the `apple-gfx-pci` device. Source-of-record lives at `~/mos/paravirt-re/option-rom/AppleParavirtEFI.rom`. Phase 5.X will replace this with an in-tree EDK2 build.
 

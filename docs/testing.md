@@ -11,7 +11,7 @@ Used for development; not needed for normal end-user runtime.
 
 | Phase | Stack | Expected outcome |
 |---|---|---|
-| 0 | Vanilla QEMU 10.2.2 + OVMF + empty disk + `-vga std` | UEFI Interactive Shell visible |
+| 0 | Vanilla QEMU 11.0.0 + OVMF + empty disk + `-vga std` | UEFI Interactive Shell visible |
 | 1 | + macOS image + OpenCore EFI on disk + OEM unpatched QEMU | OpenCore picker visible |
 | 2 | Same as 1 with mos-qemu patched binary | Identical to Phase 1 (binary swap is benign) |
 | 3 | + Apple identity (`-device isa-applesmc` + `-device apple-kbd/tablet`) | macOS boots to login (if APFS unlocks) or same picker |
@@ -141,7 +141,7 @@ screen is the "expected" state.
 
 `Dockerfile.test` extends `Dockerfile` with:
 
-- A second QEMU 10.2.2 build (no patches) at `/usr/bin/qemu-system-x86_64-oem`
+- A second QEMU 11.0.0 build (no patches) at `/usr/bin/qemu-system-x86_64-oem`
 - chromium + xvfb + py3-pillow for headless capture
 - `scripts/test.sh` — per-phase QEMU arg builder
 

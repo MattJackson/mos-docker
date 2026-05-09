@@ -46,7 +46,7 @@ alpine:3.21 (builder)
     ├── apk: build-base, meson, ninja, vulkan-headers, ccache, ...
     ├── ADD libapplegfx-vulkan.tar.gz   ← from MattJackson/libapplegfx-vulkan main
     ├── meson + ninja install → /usr/lib/libapplegfx-vulkan.so + /usr/lib/pkgconfig/applegfx-vulkan.pc + headers
-    ├── ADD qemu-10.2.2.tar.xz          ← from download.qemu.org (pinned)
+    ├── ADD qemu-11.0.0.tar.xz          ← from download.qemu.org (pinned)
     ├── ADD mos-qemu.tar.gz             ← from MattJackson/mos-qemu main
     ├── overlay mos-qemu's hw/misc/applesmc.c, hw/display/vmware_vga.c,
     │   hw/usb/dev-hid.c, hw/display/apple-gfx-pci-linux.c, ...
@@ -64,7 +64,7 @@ alpine:3.21 (runtime)
 ```
 
 `Dockerfile.test` extends with:
-- A second QEMU 10.2.2 build (no patches) → `/usr/bin/qemu-system-x86_64-oem`
+- A second QEMU 11.0.0 build (no patches) → `/usr/bin/qemu-system-x86_64-oem`
 - `chromium`, `xvfb`, `py3-pillow` for headless screenshot capture
 - `scripts/test.sh` for the phase runner
 

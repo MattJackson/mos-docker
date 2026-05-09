@@ -104,7 +104,7 @@ cd mos-docker
 Builds:
 - `mos-docker:latest` (production) — alpine + patched QEMU + libapplegfx-vulkan + OVMF + scripts
 
-First build takes ~10–20 minutes (compiles QEMU 10.2.2 from source + libapplegfx-vulkan). Subsequent builds use BuildKit cache + ccache and rebuild affected layers in ~30 s to ~2 min.
+First build takes ~10–20 minutes (compiles QEMU 11.0.0 from source + libapplegfx-vulkan). Subsequent builds use BuildKit cache + ccache and rebuild affected layers in ~30 s to ~2 min.
 
 ## 6. Install macOS
 

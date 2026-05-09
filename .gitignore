@@ -35,7 +35,7 @@ DISCOVERY.md
 
 # Local QEMU/libapplegfx-vulkan source/build trees (downloaded by build-phases
 # Dockerfiles, but never committed). Multi-GB; recreated on `docker build`.
-qemu-10.2.2*/
+qemu-11.0.0*/
 qemu-build/
 qemu-*.tar.*
 mos-qemu*/

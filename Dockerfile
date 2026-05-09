@@ -137,25 +137,31 @@ RUN apk add --no-cache \
     websockify novnc \
     vulkan-loader mesa-vulkan-swrast
 
-# Patched QEMU + libapplegfx-vulkan from the builder.
-COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
-COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
-COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
-COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
+# Layer order: stable → volatile. The 32MB qemu binary COPY changes
+# every iteration (mos-qemu source advances), so put the rarely-changing
+# OVMF prep + dispatcher scripts ABOVE it. A scripts-only edit then
+# keeps the binary COPY layer cached and skips the 32MB+ re-export.
 
-# OpenCore.img built from efi/ in the repo. install.sh / entrypoint.sh
-# stage this to /data/OpenCore.img on first run; the in-image copy stays
-# as the canonical reference.
-COPY --from=opencore-builder /tmp/OpenCore.img /usr/share/mos-docker/OpenCore.img
-
-# Clean OVMF_VARS template for NVRAM reset.
+# Clean OVMF_VARS template for NVRAM reset (depends only on the apk above).
 RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd
 
-# Dispatcher + sub-scripts.
+# Dispatcher + sub-scripts. Edits here do NOT invalidate the binary COPYs below.
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/install.sh    /scripts/install.sh
 COPY scripts/run.sh        /scripts/run.sh
 RUN chmod +x /scripts/*.sh
+
+# OpenCore.img built from efi/ in the repo. Independent of the qemu
+# builder; placed above the qemu binary COPYs so an efi-only change
+# (also rare) doesn't bust the binary layer.
+COPY --from=opencore-builder /tmp/OpenCore.img /usr/share/mos-docker/OpenCore.img
+
+# Patched QEMU + libapplegfx-vulkan from the builder. These COPYs invalidate
+# every iteration, so they live at the BOTTOM of the stable prefix.
+COPY --from=builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/
+COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
+COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
+COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 
 # Sane defaults — overridable via env / docker run -e.
 ENV RAM=8 SMP=4 CORES=4 \

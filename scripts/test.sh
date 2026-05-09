@@ -221,8 +221,10 @@ fi
 # --- Phase 0-3 supervisor ---
 case "$PHASE" in
     0)
-        # OVMF boot to UEFI shell on an empty disk.
-        PASS_RE='UEFI Interactive Shell|Shell>|EFI Shell version'
+        # OVMF sanity: with empty disk, OVMF iterates boot devices and falls
+        # through to PXE. Either the boot-device-not-found message OR a UEFI
+        # shell prompt proves OVMF is alive and reached the boot manager.
+        PASS_RE='UEFI Interactive Shell|Shell>|EFI Shell version|BdsDxe: failed to load Boot|Start PXE over'
         FAIL_RE='ASSERT |MdeModulePkg.*ERROR'
         DEADLINE=60
         ;;

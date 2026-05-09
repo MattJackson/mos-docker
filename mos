@@ -26,13 +26,17 @@ mkdir -p data baselines
 # serial output. Different-phase containers are left alone so phases can run
 # in parallel.
 #
-# Container names are deterministic (mos-test-phase<N>), so this is a
-# single idempotent rm — no discover-by-args dance, no chance of matching
-# the wrong container. With `init: true` in compose.test.yml, abnormal QEMU
-# exits no longer leave dockerd/containerd state desynced, so this rm
-# reliably terminates without hanging.
+# Names are anchored prefix `mos-test-phase<N>-` followed by a unique
+# suffix (HHMMSS+PID), so this filter picks up every same-phase container
+# without ambiguity and without matching different-phase containers. With
+# `init: true` in compose.test.yml, abnormal QEMU exits no longer leave
+# dockerd/containerd state desynced, so each `docker rm -f` reliably
+# terminates without hanging.
 kill_prev_phase() {
-    docker rm -f "mos-test-phase$1" >/dev/null 2>&1 || true
+    local cid
+    for cid in $(docker ps -aq --filter "name=^mos-test-phase$1-" 2>/dev/null); do
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+    done
 }
 
 cmd="${1:-help}"
@@ -87,7 +91,11 @@ case "$cmd" in
         # Use ./mos restore-disk for ad-hoc manual restores if disk.img
         # itself ever drifts (it shouldn't, given snapshot=on).
         kill_prev_phase "$phase"
-        exec docker compose -f compose.test.yml run --rm --name "mos-test-phase${phase}" test "$phase"
+        # Unique-per-invocation name with HHMMSS+PID suffix: distinguishes
+        # concurrent runs in `docker ps` without collision, and stays
+        # prefix-killable by kill_prev_phase ("mos-test-phase<N>-*").
+        exec docker compose -f compose.test.yml run --rm \
+            --name "mos-test-phase${phase}-$(date +%H%M%S)-$$" test "$phase"
         ;;
     verify)
         # Code-driven phase verification: serial boot marker + visual gold diff.

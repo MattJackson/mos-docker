@@ -18,6 +18,24 @@ cd "$(dirname "$0")"
 
 mkdir -p data baselines
 
+# kill_prev_phase <phase>
+# Remove any running mos-docker test container for the same phase before
+# starting a new one. Each phase pins per-phase sockets (qemu-phase<N>-*.sock)
+# and noVNC port 608<N>; a leftover same-phase container from a prior run
+# silently hogs them and the new QEMU exits without producing serial output.
+# Different-phase containers are left alone so phases can run in parallel.
+kill_prev_phase() {
+    local phase="$1" cid args last
+    for cid in $(docker ps -q --filter "name=mos-docker-test" 2>/dev/null); do
+        args=$(docker inspect --format '{{range .Args}}{{.}} {{end}}' "$cid" 2>/dev/null) || continue
+        last=$(echo "$args" | awk '{print $NF}')
+        if [ "$last" = "$phase" ]; then
+            echo "killing previous test $phase container: $cid" >&2
+            docker rm -f "$cid" >/dev/null
+        fi
+    done
+}
+
 cmd="${1:-help}"
 shift || true
 
@@ -46,6 +64,7 @@ case "$cmd" in
         # stays read-only. Container exits → overlay vanishes.
         # Use ./mos restore-disk for ad-hoc manual restores if disk.img
         # itself ever drifts (it shouldn't, given snapshot=on).
+        kill_prev_phase "$phase"
         exec docker compose -f compose.test.yml run --rm test "$phase"
         ;;
     verify)
@@ -56,6 +75,7 @@ case "$cmd" in
             echo "usage: $0 verify <phase>  (phase: 0..4)" >&2
             exit 2
         fi
+        kill_prev_phase "$phase"
         exec ./scripts/test-runner.sh "$phase"
         ;;
     verify-all)

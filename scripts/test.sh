@@ -130,7 +130,8 @@ COMMON_ARGS=(
     -serial file:"$SERIAL_LOG"
     -monitor unix:"$HMP_SOCK",server,nowait
     -qmp unix:"$QMP_SOCK",server,nowait
-    -d guest_errors,-exec
+    -d guest_errors,-exec,unimp,guest_errors
+    -D /data/logs/qemu-debug.log
 )
 
 # Display device per phase:

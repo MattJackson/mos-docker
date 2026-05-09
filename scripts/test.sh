@@ -221,6 +221,13 @@ if [ "$PHASE" = "4" ]; then
 fi
 
 # --- Phase 0-3 supervisor ---
+# The supervisor uses pipes (grep | head), backgrounded jobs, and
+# command substitutions whose exit codes are NOT signal of failure.
+# Disable strict mode for the rest of the script so an in-pipe SIGPIPE
+# or a no-match grep doesn't tear the supervisor down before it can
+# print a verdict.
+set +e
+set +o pipefail
 case "$PHASE" in
     0)
         # OVMF sanity: with empty disk, OVMF iterates boot devices and falls

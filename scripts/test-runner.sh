@@ -45,16 +45,27 @@ TOTAL_PX=$((RES_W * RES_H))
 #   3      153s              0.65%       200s    1.5%
 phase_config() {
     local phase=$1
+    INPUT_VERIFY=0
     case "$phase" in
         0)
             BOOT_MARKER='UEFI Interactive Shell|EDK II'
             PHASE_SETTLE=15
             DIFF_THRESHOLD_PCT=1
             ;;
-        1|2|3)
+        1|2)
             BOOT_MARKER='loginwindow \([0-9]+\)'
             PHASE_SETTLE=200
             DIFF_THRESHOLD_PCT=2   # 2% gives ~3x headroom over max observed (0.65%)
+            ;;
+        3)
+            BOOT_MARKER='loginwindow \([0-9]+\)'
+            PHASE_SETTLE=200
+            DIFF_THRESHOLD_PCT=2
+            # Phase 3 = Apple HID by definition (apple-magic-keyboard +
+            # apple-mighty-mouse). Drive deterministic input after boot
+            # passes and gold-diff a second screendump so the test
+            # actually exercises HID delivery, not just boot.
+            INPUT_VERIFY=1
             ;;
         4)
             echo "phase 4: apple-gfx-pci paravirt — no gold (M5 stage 20% gate)" >&2
@@ -69,11 +80,40 @@ phase_config() {
     GOLD="$BASELINES_DIR/phase-${phase}-gold.png"
     CURRENT="$BASELINES_DIR/phase-${phase}-current.png"
     DIFF_OVERLAY="$BASELINES_DIR/phase-${phase}-diff.png"
+    INPUT_GOLD="$BASELINES_DIR/phase-${phase}-input-gold.png"
+    INPUT_CURRENT="$BASELINES_DIR/phase-${phase}-input-current.png"
+    INPUT_DIFF="$BASELINES_DIR/phase-${phase}-input-diff.png"
     if [ ! -f "$GOLD" ]; then
         echo "phase $phase: ERROR gold not found at $GOLD" >&2
         return 2
     fi
     return 0
+}
+
+# Drive a deterministic HID input sequence into a running QEMU via QMP.
+# Used by phase 3's INPUT_VERIFY to exercise apple-magic-keyboard +
+# apple-mighty-mouse delivery. Sends three keys (a/b/c → 3 password dots
+# at the loginwindow prompt) and an absolute mouse position (15000,15000
+# in QEMU's 0..32767 abs space — center of screen, cursor visible).
+qmp_drive_input() {
+    local sock=$1
+    sudo bash -c "{
+        printf '%s\n' '{\"execute\":\"qmp_capabilities\"}'
+        printf '%s\n' '{\"execute\":\"send-key\",\"arguments\":{\"keys\":[{\"type\":\"qcode\",\"data\":\"a\"}]}}'
+        printf '%s\n' '{\"execute\":\"send-key\",\"arguments\":{\"keys\":[{\"type\":\"qcode\",\"data\":\"b\"}]}}'
+        printf '%s\n' '{\"execute\":\"send-key\",\"arguments\":{\"keys\":[{\"type\":\"qcode\",\"data\":\"c\"}]}}'
+        printf '%s\n' '{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":15000}},{\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":15000}}]}}'
+    } | socat - UNIX-CONNECT:$sock" >/dev/null 2>&1
+}
+
+# Send Escape via QMP to clear the password field after input verify, so
+# subsequent runs of the same phase find a clean loginwindow state.
+qmp_clear_password() {
+    local sock=$1
+    sudo bash -c "{
+        printf '%s\n' '{\"execute\":\"qmp_capabilities\"}'
+        printf '%s\n' '{\"execute\":\"send-key\",\"arguments\":{\"keys\":[{\"type\":\"qcode\",\"data\":\"esc\"}]}}'
+    } | socat - UNIX-CONNECT:$sock" >/dev/null 2>&1 || true
 }
 
 teardown() {
@@ -238,17 +278,110 @@ run_phase() {
     local pct
     pct=$(awk "BEGIN { printf \"%.2f\", $diff_count / $TOTAL_PX * 100 }")
 
-    if [ "$diff_count" -lt "$threshold_px" ]; then
-        echo "[runner] phase $phase: PASS  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
-        teardown "$container"
-        return 0
-    else
+    if [ "$diff_count" -ge "$threshold_px" ]; then
         echo "[runner] phase $phase: FAIL  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
         echo "  current: $CURRENT"
         echo "  diff:    $DIFF_OVERLAY"
         teardown "$container"
         return 1
     fi
+
+    # Boot diff passed. If the phase wants HID input verification, drive
+    # a deterministic key + mouse sequence and gold-diff a second
+    # screendump so the test actually proves HID delivery, not just
+    # boot.
+    if [ "${INPUT_VERIFY:-0}" = "1" ]; then
+        local qmp_sock="$DATA_DIR/run/qemu-phase${phase}-qmp.sock"
+        local input_ppm_in="/data/run/phase${phase}-input.ppm"
+        local input_ppm="$DATA_DIR/run/phase${phase}-input.ppm"
+        local input_png="$DATA_DIR/run/phase${phase}-input.png"
+        local input_diff_png="$DATA_DIR/run/phase${phase}-input-diff.png"
+
+        [ "${RUNNER_VERBOSE:-0}" = "1" ] && echo "[runner] phase $phase: input verify — driving keys + mouse via QMP..."
+        if ! qmp_drive_input "$qmp_sock"; then
+            echo "[runner] phase $phase: FAIL — QMP input injection failed (socket $qmp_sock)"
+            teardown "$container"
+            return 1
+        fi
+        sleep 2
+
+        if ! sudo bash -c "echo screendump $input_ppm_in | socat - UNIX-CONNECT:$hmp_sock" >/dev/null 2>&1; then
+            echo "[runner] phase $phase: FAIL — input screendump failed"
+            qmp_clear_password "$qmp_sock"
+            teardown "$container"
+            return 1
+        fi
+        sleep 2
+        if ! sudo test -f "$input_ppm"; then
+            echo "[runner] phase $phase: FAIL — input screendump produced no PPM"
+            qmp_clear_password "$qmp_sock"
+            teardown "$container"
+            return 1
+        fi
+
+        sudo docker run --rm -v "$DATA_DIR/run:/work" alpine:3.20 sh -c \
+            "apk add -q imagemagick && convert /work/$(basename "$input_ppm") /work/$(basename "$input_png")" >/dev/null 2>&1 || {
+                echo "[runner] phase $phase: FAIL — input PPM→PNG conversion failed"
+                qmp_clear_password "$qmp_sock"
+                teardown "$container"
+                return 1
+            }
+        sudo cp "$input_png" "$INPUT_CURRENT"
+
+        # Auto-bootstrap: if no input gold exists yet, capture this run as
+        # the gold, mark the run PASS with a bootstrap note, and let the
+        # operator review the screenshot before subsequent runs enforce
+        # diff. Future runs gold-diff strictly.
+        if [ ! -f "$INPUT_GOLD" ]; then
+            sudo cp "$INPUT_CURRENT" "$INPUT_GOLD"
+            qmp_clear_password "$qmp_sock"
+            echo "[runner] phase $phase: PASS  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) [input-gold bootstrapped at $INPUT_GOLD — review then commit]"
+            teardown "$container"
+            return 0
+        fi
+
+        local input_diff_count
+        input_diff_count=$(sudo docker run --rm \
+            -v "$DATA_DIR/run:/work" \
+            -v "$BASELINES_DIR:/baselines:ro" \
+            alpine:3.20 sh -c \
+            "apk add -q imagemagick && compare -metric AE -fuzz $FUZZ /work/$(basename "$input_png") /baselines/$(basename "$INPUT_GOLD") /work/$(basename "$input_diff_png") 2>&1; true" \
+            | tail -1)
+        sudo cp "$input_diff_png" "$INPUT_DIFF" 2>/dev/null || true
+
+        local input_diff_int
+        input_diff_int=$(awk "BEGIN { printf \"%d\", $input_diff_count }" 2>/dev/null || echo "")
+        if [[ ! "$input_diff_int" =~ ^[0-9]+$ ]]; then
+            echo "[runner] phase $phase: FAIL — input image compare error: $input_diff_count"
+            qmp_clear_password "$qmp_sock"
+            teardown "$container"
+            return 1
+        fi
+
+        local input_pct
+        input_pct=$(awk "BEGIN { printf \"%.2f\", $input_diff_int / $TOTAL_PX * 100 }")
+
+        # Always send Escape to clear password field for idempotent re-runs.
+        # Run AFTER the diff capture so the diff reflects the post-input
+        # state, not the post-clear state.
+        qmp_clear_password "$qmp_sock"
+
+        if [ "$input_diff_int" -ge "$threshold_px" ]; then
+            echo "[runner] phase $phase: FAIL  input-diff=${input_diff_int}/${TOTAL_PX} (${input_pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
+            echo "  input current: $INPUT_CURRENT"
+            echo "  input diff:    $INPUT_DIFF"
+            teardown "$container"
+            return 1
+        fi
+
+        echo "[runner] phase $phase: PASS  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) input-diff=${input_diff_int}/${TOTAL_PX} (${input_pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
+        teardown "$container"
+        return 0
+    fi
+
+    echo "[runner] phase $phase: PASS  boot=${boot_time}s diff=${diff_count}/${TOTAL_PX} (${pct}%) threshold=${DIFF_THRESHOLD_PCT}%"
+    teardown "$container"
+    return 0
 }
 
 run_all() {

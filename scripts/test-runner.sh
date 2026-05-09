@@ -104,6 +104,14 @@ run_phase() {
     local png="$DATA_DIR/run/phase${phase}-runner.png"
     local diff_png="$DATA_DIR/run/phase${phase}-runner-diff.png"
 
+    # Evict any leftover same-phase runner container (e.g. operator Ctrl-C'd
+    # a prior run, leaving the detached `-d` container behind). The unique
+    # HHMMSS+PID suffix means `teardown "$container"` below would only catch
+    # the new name, not prior leftovers — so prefix-match here.
+    local stale
+    for stale in $(sudo docker ps -aq --filter "name=^mos-runner-phase${phase}-" 2>/dev/null); do
+        sudo docker rm -f "$stale" >/dev/null 2>&1 || true
+    done
     teardown "$container"
 
     local start_ts=$(date +%s)

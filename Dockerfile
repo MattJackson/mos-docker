@@ -42,8 +42,11 @@ RUN mkdir -p /usr/lib/pkgconfig \
 
 # Build libapplegfx-vulkan first so QEMU's mos-qemu meson.build finds it
 # at configure time. ADD re-checks upstream; a push to the lib only
-# invalidates this layer + downstream.
-ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/refs/heads/main.tar.gz /tmp/libapplegfx-vulkan.tar.gz
+# invalidates this layer + downstream. SHA pin ensures the URL itself
+# changes when the source advances, so layer cache invalidates without
+# needing --no-cache (default `main` keeps existing CI working).
+ARG LIBAPPLEGFX_SHA=main
+ADD https://github.com/MattJackson/libapplegfx-vulkan/archive/${LIBAPPLEGFX_SHA}.tar.gz /tmp/libapplegfx-vulkan.tar.gz
 RUN --mount=type=cache,target=/root/.ccache \
     mkdir -p /tmp/libapplegfx-vulkan \
     && tar xz -C /tmp/libapplegfx-vulkan --strip-components=1 -f /tmp/libapplegfx-vulkan.tar.gz \
@@ -53,11 +56,14 @@ RUN --mount=type=cache,target=/root/.ccache \
 
 # Build QEMU with mos-qemu patches.
 ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
-ADD https://github.com/MattJackson/mos-qemu/archive/refs/heads/main.tar.gz /tmp/mos-qemu.tar.gz
+ARG MOSQEMU_SHA=main
+ADD https://github.com/MattJackson/mos-qemu/archive/${MOSQEMU_SHA}.tar.gz /tmp/mos-qemu.tar.gz
 
+# ccache is content-hashed (safe across source changes); the meson build dir
+# is not (mtime-based, mis-decides on cached `.o` reuse — see lessons below).
 RUN --mount=type=cache,target=/root/.ccache \
-    --mount=type=cache,target=/tmp/qemu-build \
-    rm -rf /tmp/qemu-${QEMU_VERSION} /tmp/mos-qemu \
+    rm -rf /tmp/qemu-${QEMU_VERSION} /tmp/mos-qemu /tmp/qemu-build \
+    && mkdir -p /tmp/qemu-build \
     && tar xJ -C /tmp -f /tmp/qemu-upstream.tar.xz \
     && mkdir -p /tmp/mos-qemu \
     && tar xz -C /tmp/mos-qemu --strip-components=1 -f /tmp/mos-qemu.tar.gz \
@@ -83,6 +89,13 @@ RUN --mount=type=cache,target=/root/.ccache \
     && make -j$(nproc) \
     && make DESTDIR=/tmp/qemu-install install \
     && ccache -s || true
+
+# Build-time smoke test: prove ADD pulled the right tarball (source contains
+# the marker) AND the binary linked + runs. Bump the marker string when you
+# need to re-validate after a future source change.
+RUN /tmp/qemu-install/usr/bin/qemu-system-x86_64 --version | grep -q "QEMU emulator version" \
+    && grep -q "initial_surface_pushed" /tmp/qemu-${QEMU_VERSION}/hw/display/apple-gfx-common-linux.c \
+    || (echo "STALE BUILD: source missing initial_surface_pushed marker — buildkit cache mount may have served old objects. Run: docker builder prune --all" && exit 1)
 
 # ---------------------------------------------------------------------------
 # OpenCore.img builder

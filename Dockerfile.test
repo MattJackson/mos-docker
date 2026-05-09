@@ -34,9 +34,11 @@ ENV PATH="/usr/lib/ccache/bin:${PATH}" \
 
 ADD https://download.qemu.org/qemu-10.2.2.tar.xz /tmp/qemu-upstream.tar.xz
 
+# ccache is content-hashed (safe across source changes); the meson build dir
+# is not (mtime-based, mis-decides on cached `.o` reuse — see lessons below).
 RUN --mount=type=cache,target=/root/.ccache \
-    --mount=type=cache,target=/tmp/qemu-build \
-    rm -rf /tmp/qemu-${QEMU_VERSION} \
+    rm -rf /tmp/qemu-${QEMU_VERSION} /tmp/qemu-build \
+    && mkdir -p /tmp/qemu-build \
     && tar xJ -C /tmp -f /tmp/qemu-upstream.tar.xz \
     && cd /tmp/qemu-build \
     && /tmp/qemu-${QEMU_VERSION}/configure \

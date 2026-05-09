@@ -41,10 +41,33 @@ shift || true
 
 case "$cmd" in
     build)
-        exec docker compose build "$@"
+        # Resolve commit SHAs at build time so the ADD URL itself encodes
+        # the source version. This makes the layer cache invalidate
+        # automatically when either repo advances, without needing --no-cache.
+        # Falls back to literal "main" if git ls-remote fails (offline build).
+        MOSQEMU_SHA=$(git ls-remote https://github.com/MattJackson/mos-qemu.git main 2>/dev/null | cut -f1)
+        LIBAPPLEGFX_SHA=$(git ls-remote https://github.com/MattJackson/libapplegfx-vulkan.git main 2>/dev/null | cut -f1)
+        : "${MOSQEMU_SHA:=main}"
+        : "${LIBAPPLEGFX_SHA:=main}"
+        echo "Building mos-docker:latest with mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
+        exec docker compose build \
+            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
+            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
+            "$@"
         ;;
     build-test)
-        exec docker compose -f compose.yml -f compose.test.yml build test
+        # Same SHA-pin pattern as `build` — the test image extends
+        # mos-docker:latest, so a rebuild of the base layer here also
+        # benefits from URL-driven cache invalidation.
+        MOSQEMU_SHA=$(git ls-remote https://github.com/MattJackson/mos-qemu.git main 2>/dev/null | cut -f1)
+        LIBAPPLEGFX_SHA=$(git ls-remote https://github.com/MattJackson/libapplegfx-vulkan.git main 2>/dev/null | cut -f1)
+        : "${MOSQEMU_SHA:=main}"
+        : "${LIBAPPLEGFX_SHA:=main}"
+        echo "Building mos-docker:test with mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
+        exec docker compose -f compose.yml -f compose.test.yml build \
+            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
+            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
+            test
         ;;
     install)
         exec docker compose run --rm --service-ports install

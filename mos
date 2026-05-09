@@ -59,14 +59,23 @@ case "$cmd" in
             "$@"
         ;;
     build-test)
-        # Same SHA-pin pattern as `build` — the test image extends
-        # mos-docker:latest, so a rebuild of the base layer here also
-        # benefits from URL-driven cache invalidation.
+        # mos-docker:test extends mos-docker:latest (Dockerfile.test starts
+        # FROM mos-docker:latest), so the test image's qemu/libapplegfx
+        # binaries come from the BASE image, not from the test build. To
+        # actually pick up new mos-qemu/libapplegfx commits we must rebuild
+        # the base FIRST, then the test layer on top. Skipping the base
+        # rebuild silently leaves the test image with stale binaries even
+        # though the test-build log claims a fresh SHA.
         MOSQEMU_SHA=$(git ls-remote https://github.com/MattJackson/mos-qemu.git main 2>/dev/null | cut -f1)
         LIBAPPLEGFX_SHA=$(git ls-remote https://github.com/MattJackson/libapplegfx-vulkan.git main 2>/dev/null | cut -f1)
         : "${MOSQEMU_SHA:=main}"
         : "${LIBAPPLEGFX_SHA:=main}"
-        echo "Building mos-docker:test with mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
+        echo "Building mos-docker:latest first (test image extends it) — mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
+        docker compose build \
+            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
+            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
+            macos
+        echo "Building mos-docker:test..."
         exec docker compose -f compose.yml -f compose.test.yml build \
             --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
             --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \

@@ -257,6 +257,17 @@ qmp_send() {
         | socat - "UNIX-CONNECT:$QMP_SOCK" >/dev/null 2>&1 || true
 }
 
+# Capture a PNG screenshot via QMP screendump. Writes to
+# /data/run/phase-${PHASE}-current.png (bind-mounted to host as
+# data/run/phase-${PHASE}-current.png). Sign-off compare against the
+# baselines/phase-${PHASE}-gold.png happens on the laptop side.
+qmp_screendump() {
+    local out="$1"
+    [ -S "$QMP_SOCK" ] || return 0
+    printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s","format":"png"}}\n' "$out" \
+        | socat - "UNIX-CONNECT:$QMP_SOCK" >/dev/null 2>&1 || true
+}
+
 START=$(date +%s)
 RESULT=
 while :; do
@@ -291,6 +302,15 @@ case "$RESULT" in
     PASS)
         MATCH=$(grep -oE "$PASS_RE" "$SERIAL_LOG" 2>/dev/null | head -1)
         echo "  ✓ PASS  phase $PHASE in ${ELAPSED}s — matched: ${MATCH}"
+        # Let the screen settle a beat, then capture for sign-off compare.
+        sleep 3
+        SHOT="/data/run/phase-${PHASE}-current.png"
+        qmp_screendump "$SHOT"
+        if [ -s "$SHOT" ]; then
+            echo "    screenshot: $SHOT ($(stat -c%s "$SHOT" 2>/dev/null) bytes)"
+        else
+            echo "    screenshot: FAILED to capture"
+        fi
         qmp_send system_powerdown
         EXIT=0
         ;;

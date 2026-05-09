@@ -40,7 +40,14 @@ services:
     image: mos-docker:latest
     build: .
     command: ["run"]
-    restart: unless-stopped
+    # NO restart policy. The only way mos containers come up is via `./mos`
+    # explicitly. `restart: unless-stopped` here previously caused dockerd
+    # to auto-restart this service after every host reboot AND silently
+    # restart-loop a crashing container indefinitely (observed
+    # restartCount=120+ across 2 hours after a host reboot, masquerading
+    # as resource contention for unrelated test runs). Operator launches
+    # via `./mos run` / `./mos test N` / `./mos verify N`; if it crashes
+    # we want the crash visible, not papered over by silent restart.
     privileged: true
     network_mode: host
     devices:

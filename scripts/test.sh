@@ -106,7 +106,12 @@ fi
 echo "Starting bundled noVNC on http://0.0.0.0:${NOVNC_PORT}/vnc.html?autoconnect=1"
 websockify --web=/usr/share/novnc "$NOVNC_PORT" "127.0.0.1:$VNC_PORT" &
 NOVNC_BG=$!
-trap '[ -n "${NOVNC_BG:-}" ] && kill $NOVNC_BG 2>/dev/null || true' EXIT
+cleanup() {
+    [ -n "${NOVNC_BG:-}" ] && kill "$NOVNC_BG" 2>/dev/null || true
+    [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # Per-phase QEMU args.
 COMMON_ARGS=(
@@ -205,4 +210,106 @@ echo "    QMP socket:  $QMP_SOCK"
 echo "    noVNC:       http://0.0.0.0:${NOVNC_PORT}/vnc.html?autoconnect=1"
 echo "================================================================"
 
-exec "$QEMU_BIN" "${COMMON_ARGS[@]}"
+# Phase 4 is the M5 development stack — runs interactively without
+# auto-pass/fail (visual verification on noVNC over a long session).
+# Phases 0-3 are real regression tests: boot, watch the serial log for
+# known pass/fail markers, exit 0/1/2 with a clear verdict.
+if [ "$PHASE" = "4" ]; then
+    exec "$QEMU_BIN" "${COMMON_ARGS[@]}"
+fi
+
+# --- Phase 0-3 supervisor ---
+case "$PHASE" in
+    0)
+        # OVMF boot to UEFI shell on an empty disk.
+        PASS_RE='UEFI Interactive Shell|Shell>|EFI Shell version'
+        FAIL_RE='ASSERT |MdeModulePkg.*ERROR'
+        DEADLINE=60
+        ;;
+    1|2|3)
+        # macOS boot to login screen — detected via late-userland services
+        # appearing in the kernel log. Any of these markers means userspace
+        # has reached login window or beyond.
+        PASS_RE='AirPlayXPCHelper|AppleKeyStore.*session uid|WindowServer|loginwindow|securityd|mDNSResponder'
+        FAIL_RE='panic\(cpu |Debugger called|Unable to find driver for this platform|hfs_mountfs failed|kernel panic|"Sleeping"'
+        DEADLINE=300
+        ;;
+esac
+
+# Start QEMU in the background; cleanup() (above) tears it down on exit.
+"$QEMU_BIN" "${COMMON_ARGS[@]}" &
+QEMU_PID=$!
+
+qmp_send() {
+    [ -S "$QMP_SOCK" ] || return 0
+    printf '{"execute":"qmp_capabilities"}\n{"execute":"%s"}\n' "$1" \
+        | socat - "UNIX-CONNECT:$QMP_SOCK" >/dev/null 2>&1 || true
+}
+
+START=$(date +%s)
+RESULT=
+while :; do
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - START))
+
+    # QEMU itself exited (crash, --version, etc.)?
+    if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+        RESULT="QEMU_EXIT"
+        break
+    fi
+
+    if [ -f "$SERIAL_LOG" ]; then
+        if grep -qE "$FAIL_RE" "$SERIAL_LOG" 2>/dev/null; then
+            RESULT="FAIL"; break
+        fi
+        if grep -qE "$PASS_RE" "$SERIAL_LOG" 2>/dev/null; then
+            RESULT="PASS"; break
+        fi
+    fi
+
+    if [ "$ELAPSED" -ge "$DEADLINE" ]; then
+        RESULT="TIMEOUT"; break
+    fi
+
+    sleep 2
+done
+ELAPSED=$(($(date +%s) - START))
+
+echo "================================================================"
+case "$RESULT" in
+    PASS)
+        MATCH=$(grep -oE "$PASS_RE" "$SERIAL_LOG" 2>/dev/null | head -1)
+        echo "  ✓ PASS  phase $PHASE in ${ELAPSED}s — matched: ${MATCH}"
+        qmp_send system_powerdown
+        EXIT=0
+        ;;
+    FAIL)
+        MATCH=$(grep -oE "$FAIL_RE" "$SERIAL_LOG" 2>/dev/null | head -1)
+        echo "  ✗ FAIL  phase $PHASE in ${ELAPSED}s — matched: ${MATCH}"
+        qmp_send quit
+        EXIT=1
+        ;;
+    TIMEOUT)
+        echo "  ✗ TIMEOUT  phase $PHASE — ${DEADLINE}s elapsed without pass marker"
+        echo "    last log lines:"
+        tail -5 "$SERIAL_LOG" 2>/dev/null | sed 's/^/      | /'
+        qmp_send quit
+        EXIT=2
+        ;;
+    QEMU_EXIT)
+        echo "  ✗ QEMU_EXIT  phase $PHASE — QEMU died after ${ELAPSED}s"
+        EXIT=3
+        ;;
+esac
+echo "  serial log: $SERIAL_LOG"
+echo "================================================================"
+
+# Give QEMU up to 10s for graceful shutdown via QMP, then SIGKILL.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$QEMU_PID" 2>/dev/null || break
+    sleep 1
+done
+kill -9 "$QEMU_PID" 2>/dev/null || true
+wait "$QEMU_PID" 2>/dev/null || true
+
+exit $EXIT

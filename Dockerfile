@@ -88,14 +88,17 @@ RUN --mount=type=cache,target=/root/.ccache \
         --disable-docs --disable-debug-info --disable-werror \
     && make -j$(nproc) \
     && make DESTDIR=/tmp/qemu-install install \
-    && ccache -s || true
+    ; ccache -s || true
 
-# Build-time smoke test: prove ADD pulled the right tarball (source contains
-# the marker) AND the binary linked + runs. Bump the marker string when you
-# need to re-validate after a future source change.
-RUN /tmp/qemu-install/usr/bin/qemu-system-x86_64 --version | grep -q "QEMU emulator version" \
+# Build-time smoke test: VERSION-pinned. Fails loudly if the binary doesn't
+# match QEMU_VERSION (catches stale-cache + silent-build-failure regressions)
+# or if the overlay marker is missing. Bump the marker string when re-validating.
+RUN BUILT_VER=$(/tmp/qemu-install/usr/bin/qemu-system-x86_64 --version 2>&1 | head -1) \
+    && echo "$BUILT_VER" \
+    && echo "$BUILT_VER" | grep -q "version ${QEMU_VERSION}" \
+    || (echo "STALE BUILD: binary is '$BUILT_VER', expected version ${QEMU_VERSION}. Run: docker builder prune --all" && exit 1) \
     && grep -q "initial_surface_pushed" /tmp/qemu-${QEMU_VERSION}/hw/display/apple-gfx-common-linux.c \
-    || (echo "STALE BUILD: source missing initial_surface_pushed marker — buildkit cache mount may have served old objects. Run: docker builder prune --all" && exit 1)
+    || (echo "STALE BUILD: source missing initial_surface_pushed marker" && exit 1)
 
 # ---------------------------------------------------------------------------
 # OpenCore.img builder

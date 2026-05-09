@@ -66,7 +66,7 @@ services:
       - GPU_CORES=${GPU_CORES:-8}
       - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}
-      # - MOS_USE_APPLE_GFX_PCI=1    # temporarily disabled for debugging
+      # - MOS_USE_APPLE_GFX_PCI=1    # disabled - memfd_alloc(0) bug
       # MOS_PERSIST: 1 = writes hit disk.img (default behavior for production
       # users who want their state to survive). 0 = snapshot=on, ephemeral
       # writes (safer for development; default in scripts/run.sh).

@@ -161,20 +161,25 @@ if [ "$PHASE" -ge 1 ]; then
     )
 fi
 
-# USB HID — env-tunable. Defaults to generic usb-kbd / usb-tablet so
-# existing phase-3 baseline behaviour is unchanged. Override to exercise
-# the Apple-vendor-HID emulators (`apple-magic-keyboard` PID 0x026c /
-# `apple-magic-tablet` PID 0x0265) as the regression gate before a
-# downstream switch in run.sh / install.sh:
+# USB HID — phase 3 is "Apple HID" by definition (see ./mos help), so the
+# defaults flip to the Apple emulators on phase 3 only. Other phases keep
+# generic usb-kbd / usb-tablet defaults.
 #
-#     KBD_DEVICE=apple-magic-keyboard \
-#     TABLET_DEVICE=apple-magic-tablet \
-#     ./mos verify 3
+# Override knobs:
+#   KBD_DEVICE   — keyboard device type (default: usb-kbd; phase 3: apple-magic-keyboard)
+#   MOUSE_DEVICE — mouse/pointer device type (canonical, the device emulates
+#                  Mighty Mouse PID 0x0304 — not a tablet)
+#   TABLET_DEVICE — back-compat alias for MOUSE_DEVICE; honored if MOUSE_DEVICE unset
 #
-# A green phase-3 under those overrides is the green light to flip the
-# install/run path. A red phase-3 is a regression that blocks the flip.
-KBD_DEVICE="${KBD_DEVICE:-usb-kbd}"
-TABLET_DEVICE="${TABLET_DEVICE:-usb-tablet}"
+# To swap to generic devices on phase 3 for diff-bisect:
+#     KBD_DEVICE=usb-kbd MOUSE_DEVICE=usb-tablet ./mos verify 3
+if [ "$PHASE" = "3" ]; then
+    KBD_DEVICE="${KBD_DEVICE:-apple-magic-keyboard}"
+    TABLET_DEVICE="${MOUSE_DEVICE:-${TABLET_DEVICE:-apple-mighty-mouse}}"
+else
+    KBD_DEVICE="${KBD_DEVICE:-usb-kbd}"
+    TABLET_DEVICE="${MOUSE_DEVICE:-${TABLET_DEVICE:-usb-tablet}}"
+fi
 COMMON_ARGS+=(
     -device qemu-xhci,id=xhci
     -device "${KBD_DEVICE},bus=xhci.0"

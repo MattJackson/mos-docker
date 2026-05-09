@@ -28,8 +28,8 @@ services:
       - /dev/kvm:/dev/kvm
     cap_add:
       - NET_ADMIN
-    mem_limit: ${MEM_LIMIT:-20g}        # ceiling = guest -m + ~25% for QEMU host-side
-    cpus: '${CPU_LIMIT:-20}'            # ceiling = guest -smp + iothread/qmp headroom
+    mem_limit: ${MEM_LIMIT:-24g}        # ceiling = guest -m + ~50% for QEMU host-side
+    cpus: '${CPU_LIMIT:-32}'            # ceiling = guest -smp + iothread/qmp headroom (matches prod)
     volumes:
       - ./data:/data
       - ./baselines:/baselines
@@ -37,6 +37,10 @@ services:
     tty: true
     stdin_open: true
     environment:
-      - RAM=${RAM:-8}
-      - SMP=${SMP:-8}
-      - CORES=${CORES:-8}
+      # Test guest defaults match production (compose.yml macos service):
+      # 16 vCPUs / 16 GB. Previous 8/8 default produced ~2x slower boot
+      # which combined with the 300s BOOT_TIMEOUT pushed phase 1/2/3 verifies
+      # to flake-rate; 16/16 boots in the calibrated 138-153s window.
+      - RAM=${RAM:-16}
+      - SMP=${SMP:-16}
+      - CORES=${CORES:-16}

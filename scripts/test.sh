@@ -116,10 +116,10 @@ trap cleanup EXIT INT TERM
 # Per-phase QEMU args.
 COMMON_ARGS=(
     -enable-kvm
-    -m "${RAM:-8}G"
+    -m "${RAM:-16}G"
     -cpu host,vendor=GenuineIntel,vmware-cpuid-freq=on
     -machine q35
-    -smp "${SMP:-8}",cores="${CORES:-8}"
+    -smp "${SMP:-16}",cores="${CORES:-16}"
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd
     -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd
     -smbios type=2

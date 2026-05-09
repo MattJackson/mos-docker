@@ -171,7 +171,8 @@ run_phase() {
         --privileged --network host \
         --device /dev/kvm:/dev/kvm \
         --cap-add NET_ADMIN \
-        --memory 20g --cpus 20 \
+        --memory 24g --cpus 32 \
+        -e RAM=16 -e SMP=16 -e CORES=16 \
         -v "$DATA_DIR":/data \
         -v "$BASELINES_DIR":/baselines \
         ${KBD_DEVICE:+-e KBD_DEVICE="$KBD_DEVICE"} \

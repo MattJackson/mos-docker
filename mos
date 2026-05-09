@@ -19,21 +19,20 @@ cd "$(dirname "$0")"
 mkdir -p data baselines
 
 # kill_prev_phase <phase>
-# Remove any running mos-docker test container for the same phase before
-# starting a new one. Each phase pins per-phase sockets (qemu-phase<N>-*.sock)
-# and noVNC port 608<N>; a leftover same-phase container from a prior run
-# silently hogs them and the new QEMU exits without producing serial output.
-# Different-phase containers are left alone so phases can run in parallel.
+# Remove any leftover same-phase test container (stopped, running, or zombie)
+# before starting a new one. Each phase pins per-phase sockets
+# (qemu-phase<N>-*.sock) and noVNC port 608<N>; a leftover same-phase
+# container silently hogs them and the new QEMU exits without producing
+# serial output. Different-phase containers are left alone so phases can run
+# in parallel.
+#
+# Container names are deterministic (mos-test-phase<N>), so this is a
+# single idempotent rm — no discover-by-args dance, no chance of matching
+# the wrong container. With `init: true` in compose.test.yml, abnormal QEMU
+# exits no longer leave dockerd/containerd state desynced, so this rm
+# reliably terminates without hanging.
 kill_prev_phase() {
-    local phase="$1" cid args last
-    for cid in $(docker ps -q --filter "name=mos-docker-test" 2>/dev/null); do
-        args=$(docker inspect --format '{{range .Args}}{{.}} {{end}}' "$cid" 2>/dev/null) || continue
-        last=$(echo "$args" | awk '{print $NF}')
-        if [ "$last" = "$phase" ]; then
-            echo "killing previous test $phase container: $cid" >&2
-            docker rm -f "$cid" >/dev/null
-        fi
-    done
+    docker rm -f "mos-test-phase$1" >/dev/null 2>&1 || true
 }
 
 cmd="${1:-help}"
@@ -88,7 +87,7 @@ case "$cmd" in
         # Use ./mos restore-disk for ad-hoc manual restores if disk.img
         # itself ever drifts (it shouldn't, given snapshot=on).
         kill_prev_phase "$phase"
-        exec docker compose -f compose.test.yml run --rm test "$phase"
+        exec docker compose -f compose.test.yml run --rm --name "mos-test-phase${phase}" test "$phase"
         ;;
     verify)
         # Code-driven phase verification: serial boot marker + visual gold diff.

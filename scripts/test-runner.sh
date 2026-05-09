@@ -108,7 +108,12 @@ run_phase() {
 
     local start_ts=$(date +%s)
     echo "[runner] phase $phase: launching ($container)..."
-    sudo docker run -d --rm --name "$container" \
+    # --init: tini as PID 1 reaps QEMU's exit (clean OR via KVM-kernel
+    # SIGSEGV) deterministically. Without it, when test.sh's `exec qemu`
+    # makes QEMU itself PID 1, an abnormal exit can desync dockerd's
+    # task-state machine from containerd, producing a "Up" zombie that
+    # nothing short of a daemon restart will clear.
+    sudo docker run -d --rm --init --name "$container" \
         --privileged --network host \
         --device /dev/kvm:/dev/kvm \
         --cap-add NET_ADMIN \

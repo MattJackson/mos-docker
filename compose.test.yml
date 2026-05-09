@@ -16,6 +16,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.test
+    # tini as PID 1: QEMU's exit (clean OR via KVM-kernel SIGSEGV) is reaped
+    # deterministically. Without this, when phase 4's `exec qemu` makes QEMU
+    # itself PID 1, an abnormal exit can leave dockerd's task-state machine
+    # out of sync with containerd, producing a "Up" zombie that no `docker
+    # rm -f` will clear (only daemon restart will).
+    init: true
     privileged: true
     network_mode: host
     devices:

@@ -23,7 +23,13 @@
 set -euo pipefail
 
 PHASE_ARG="${1:?usage: test-runner.sh <phase|all>}"
-BOOT_TIMEOUT="${BOOT_TIMEOUT:-300}"
+# Phase 1/2/3 typically reach loginwindow at 138-153s on a warm image, but
+# cold-cache or first-run-after-rebuild can stretch past 300s (apple HID
+# enumeration on a fresh image was observed to push past 300s on first
+# run after the apple-magic-tablet → apple-mighty-mouse rename). 600s
+# gives ~4x headroom over typical, still bounded so a hung phase fails
+# fast.
+BOOT_TIMEOUT="${BOOT_TIMEOUT:-600}"
 SETTLE_SECS="${SETTLE_SECS:-15}"
 FUZZ="${FUZZ:-5%}"
 DATA_DIR=/mnt/docker/mos-data

@@ -40,10 +40,13 @@ set -euo pipefail
 
 PHASE="${1:-}"
 case "$PHASE" in
-    0|1|2|3|4) ;;
+    0|1|2|3|4|9) ;;
     *)
         echo "Usage: test <phase>" >&2
-        echo "  phase: 0..4 (0=sanity, 4=production paravirt)" >&2
+        echo "  phase: 0..4 or 9" >&2
+        echo "    0=sanity, 4=production paravirt (M5 dev)," >&2
+        echo "    9=interactive debug (writable disk, generic HID, std-vga," >&2
+        echo "       NO auto-powerdown — stays alive until you stop it)" >&2
         exit 2
         ;;
 esac
@@ -210,6 +213,14 @@ else
         MACHDD_OPTS="cache=none,aio=native"
         echo "  MOS_PHASE3_PERSIST=1 — writes hit $DISK directly (file.locking on)."
     fi
+    if [ "$PHASE" = "9" ]; then
+        # Phase 9 is always writable + locked. The whole point is to keep
+        # an interactive guest alive long enough to actually log in, save
+        # settings, enable Remote Login, etc. No env opt-in — that's the
+        # phase definition.
+        MACHDD_OPTS="cache=none,aio=native"
+        echo "  Phase 9 — writes hit $DISK directly (file.locking on)."
+    fi
     COMMON_ARGS+=(
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
@@ -241,7 +252,7 @@ echo "================================================================"
 # the container before the screendump can fire (the bug behind the
 # "screenshot: FAILED to capture" + verify-runner false-PASS that
 # caused 2026-05-09 regression-test paralysis).
-if [ "$PHASE" = "4" ] || [ "${EXTERNAL_SUPERVISOR:-0}" = "1" ]; then
+if [ "$PHASE" = "4" ] || [ "$PHASE" = "9" ] || [ "${EXTERNAL_SUPERVISOR:-0}" = "1" ]; then
     exec "$QEMU_BIN" "${COMMON_ARGS[@]}"
 fi
 

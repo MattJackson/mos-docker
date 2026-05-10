@@ -84,6 +84,10 @@ case "$cmd" in
         #   N=4   : interactive M5 dev stack (apple-gfx-pci paravirt). No
         #           auto pass/fail because Stage 20% gate has no gold yet
         #           — operator watches noVNC at port 6084.
+        #   N=9   : interactive debug — std-vga + generic HID + writable
+        #           disk + no auto-powerdown. For actually logging in,
+        #           saving guest settings, enabling Remote Login, etc.
+        #           Stays alive until you `./mos stop` or kill the container.
         phase="${1:-}"
         case "$phase" in
             [0-3])
@@ -102,8 +106,17 @@ case "$cmd" in
                 exec docker compose -f compose.test.yml run --rm \
                     --name "mos-test-phase4-$(date +%H%M%S)-$$" test 4
                 ;;
+            9)
+                kill_prev_phase 9
+                # Phase 9: interactive debug. Writable disk.img (no
+                # snapshot=on), generic HID, std-vga, no supervisor —
+                # the VM stays alive indefinitely. Operator stops it
+                # manually when done.
+                exec docker compose -f compose.test.yml run --rm \
+                    --name "mos-test-phase9-$(date +%H%M%S)-$$" test 9
+                ;;
             *)
-                echo "usage: $0 test <phase|all>  (phase: 0..4)" >&2
+                echo "usage: $0 test <phase|all>  (phase: 0..4 or 9)" >&2
                 exit 2
                 ;;
         esac

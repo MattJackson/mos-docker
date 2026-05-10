@@ -43,6 +43,7 @@ RUN_DIR="$DATA/run"
 mkdir -p "$LOG_DIR" "$RUN_DIR"
 BOOT_TS="$(date +%Y%m%d-%H%M%S)"
 SERIAL_LOG="$LOG_DIR/serial-${BOOT_TS}.log"
+QEMU_TRACE="$LOG_DIR/qemu-trace.log"
 HMP_SOCK="$RUN_DIR/qemu-monitor.sock"
 QMP_SOCK="$RUN_DIR/qemu-qmp.sock"
 rm -f "$HMP_SOCK" "$QMP_SOCK"
@@ -104,6 +105,29 @@ if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
 fi
 
 # --- Networking: macvtap + virtio-net-pci (known-good for macOS) ------
+
+# --- Trace backend setup ---------------------------------------------
+# Master switch for QEMU trace events. Default OFF to avoid overhead in
+# production runs. Enable with MOS_ENABLE_TRACE=1 when debugging specific
+# device paths:
+#   - apple-gfx-pci: apple_gfx_* traces (realize/reset/vblank/map/etc)
+#   - HID devices: hid_* traces (future)
+#
+# Trace event names are defined in qemu-mos15/hw/display/trace-events.
+# A pattern that matches zero events silently produces an empty log, so
+# verify against that file before changing the prefix.
+TRACE_ARGS=""
+if [ "${MOS_ENABLE_TRACE:-0}" = "1" ]; then
+    if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
+        TRACE_ARGS="-D $QEMU_TRACE -d trace:apple_gfx_*"
+        echo "INFO: Trace backend enabled for apple-gfx-pci (apple_gfx_*) -> $QEMU_TRACE"
+    fi
+    # Future extensibility: add more trace switches here
+    # if [ "${MOS_DEBUG_HID:-0}" = "1" ]; then
+    #     TRACE_ARGS="$TRACE_ARGS -d trace:hid_*"
+    # fi
+fi
+
 # macOS's recovery + production stack expects bridged networking with a
 # real LAN IP. user-mode (slirp) doesn't satisfy macOS's network-detect
 # UX even though it'd technically NAT. Fall back to slirp only when no
@@ -202,5 +226,6 @@ exec qemu-system-x86_64 \
     -monitor chardev:hmp_sock \
     -qmp unix:"$QMP_SOCK",server=on,wait=off \
     -vnc 127.0.0.1:${VNC_DISPLAY} \
+    $TRACE_ARGS \
     $DISPLAY_ARGS \
     ${EXTRA:-}

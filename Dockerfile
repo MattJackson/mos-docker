@@ -101,6 +101,47 @@ RUN BUILT_VER=$(/tmp/qemu-install/usr/bin/qemu-system-x86_64 --version 2>&1 | he
     || (echo "STALE BUILD: source missing initial_surface_pushed marker" && exit 1)
 
 # ---------------------------------------------------------------------------
+# OEM (vanilla upstream) QEMU 11.0.0 builder
+# ---------------------------------------------------------------------------
+# Phase 1 of the regression chain bisects "is the patched binary the
+# regression cause?" by booting the same args under unpatched upstream
+# QEMU. Built once here so it ships in the image alongside the patched
+# binary; test.sh selects between them by phase number.
+FROM alpine:3.21 AS oem-builder
+ARG QEMU_VERSION
+
+RUN apk add --no-cache \
+    build-base python3 ninja meson pkgconf \
+    glib-dev pixman-dev libcap-ng-dev libseccomp-dev \
+    libslirp-dev libaio-dev curl bash dtc-dev \
+    ccache
+
+ENV PATH="/usr/lib/ccache/bin:${PATH}" \
+    CCACHE_DIR=/root/.ccache \
+    CCACHE_MAXSIZE=2G \
+    CCACHE_BASEDIR=/tmp \
+    CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_macro,locale,pch_defines \
+    CCACHE_COMPILERCHECK=content \
+    CCACHE_NOHASHDIR=1
+
+ADD https://download.qemu.org/qemu-11.0.0.tar.xz /tmp/qemu-upstream.tar.xz
+
+RUN --mount=type=cache,target=/root/.ccache \
+    rm -rf /tmp/qemu-${QEMU_VERSION} /tmp/qemu-build \
+    && mkdir -p /tmp/qemu-build \
+    && tar xJ -C /tmp -f /tmp/qemu-upstream.tar.xz \
+    && cd /tmp/qemu-build \
+    && /tmp/qemu-${QEMU_VERSION}/configure \
+        --target-list=x86_64-softmmu \
+        --prefix=/usr \
+        --enable-kvm --enable-slirp --enable-linux-aio \
+        --enable-cap-ng --enable-seccomp --enable-vnc \
+        --disable-docs --disable-debug-info --disable-werror \
+    && make -j$(nproc) \
+    && make DESTDIR=/tmp/qemu-install install \
+    && ccache -s || true
+
+# ---------------------------------------------------------------------------
 # OpenCore.img builder
 # ---------------------------------------------------------------------------
 # Builds a 512 MB FAT32 EFI image from `efi/EFI/` in the repo. This is the
@@ -138,7 +179,8 @@ RUN apk add --no-cache \
     libaio libbz2 dtc bash iproute2 ovmf \
     socat coreutils \
     websockify novnc \
-    vulkan-loader mesa-vulkan-swrast
+    vulkan-loader mesa-vulkan-swrast \
+    chromium xvfb py3-pillow
 
 # Layer order: stable → volatile. The 32MB qemu binary COPY changes
 # every iteration (mos-qemu source advances), so put the rarely-changing
@@ -152,6 +194,7 @@ RUN cp /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.clean.fd
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/install.sh    /scripts/install.sh
 COPY scripts/run.sh        /scripts/run.sh
+COPY scripts/test.sh       /scripts/test.sh
 RUN chmod +x /scripts/*.sh
 
 # OpenCore.img built from efi/ in the repo. Independent of the qemu
@@ -166,14 +209,17 @@ COPY --from=builder /tmp/qemu-install/usr/bin/qemu-img /usr/bin/
 COPY --from=builder /tmp/qemu-install/usr/share/qemu/ /usr/share/qemu/
 COPY --from=builder /usr/lib/libapplegfx-vulkan.so* /usr/lib/
 
+# OEM (vanilla upstream) QEMU binary alongside the patched one; test.sh
+# uses it for phase 1 of the regression chain.
+COPY --from=oem-builder /tmp/qemu-install/usr/bin/qemu-system-x86_64 /usr/bin/qemu-system-x86_64-oem
+
 # Sane defaults — overridable via env / docker run -e.
 ENV RAM=8 SMP=4 CORES=4 \
     GPU_CORES=0 \
     NOVNC_PORT=6080 VNC_PORT=5900
 
-# noVNC web port (install + test modes); production typically uses external
-# noVNC service so this is informational only.
-EXPOSE 6080
+# noVNC web ports — 6080 install/run, 6081-6084 test phases 1-4.
+EXPOSE 6080 6081 6082 6083 6084
 
 ENTRYPOINT ["/scripts/entrypoint.sh"]
 CMD ["run"]

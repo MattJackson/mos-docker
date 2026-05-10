@@ -34,7 +34,7 @@ SETTLE_SECS="${SETTLE_SECS:-15}"
 FUZZ="${FUZZ:-5%}"
 DATA_DIR=/mnt/docker/mos-data
 BASELINES_DIR="${BASELINES_DIR:-/home/matthew/mos-docker/baselines}"
-TEST_IMAGE="${TEST_IMAGE:-mos-docker:test}"
+TEST_IMAGE="${TEST_IMAGE:-mos-docker:latest}"
 
 # Resolution for diff-threshold calc.
 RES_W=1920; RES_H=1080

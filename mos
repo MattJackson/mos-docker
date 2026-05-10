@@ -59,27 +59,12 @@ case "$cmd" in
             "$@"
         ;;
     build-test)
-        # mos-docker:test extends mos-docker:latest (Dockerfile.test starts
-        # FROM mos-docker:latest), so the test image's qemu/libapplegfx
-        # binaries come from the BASE image, not from the test build. To
-        # actually pick up new mos-qemu/libapplegfx commits we must rebuild
-        # the base FIRST, then the test layer on top. Skipping the base
-        # rebuild silently leaves the test image with stale binaries even
-        # though the test-build log claims a fresh SHA.
-        MOSQEMU_SHA=$(git ls-remote https://github.com/MattJackson/mos-qemu.git main 2>/dev/null | cut -f1)
-        LIBAPPLEGFX_SHA=$(git ls-remote https://github.com/MattJackson/libapplegfx-vulkan.git main 2>/dev/null | cut -f1)
-        : "${MOSQEMU_SHA:=main}"
-        : "${LIBAPPLEGFX_SHA:=main}"
-        echo "Building mos-docker:latest first (test image extends it) — mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
-        docker compose build \
-            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
-            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
-            macos
-        echo "Building mos-docker:test..."
-        exec docker compose -f compose.yml -f compose.test.yml build \
-            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
-            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
-            test
+        # Back-compat alias for `./mos build`. The test/production image
+        # split was dropped 2026-05-10 — there's now ONE image
+        # (mos-docker:latest) containing both patched + OEM QEMU + test
+        # scripts + screenshot tools. Old workflows using `build-test`
+        # keep working.
+        exec "$0" build "$@"
         ;;
     install)
         exec docker compose run --rm --service-ports install
@@ -158,7 +143,7 @@ case "$cmd" in
 mos — mos-docker CLI
 
 Common workflow:
-  ./mos build              build the production image
+  ./mos build              build the image (one image — production + test merged 2026-05-10)
   ./mos install            install macOS (one-time, interactive — auto-persists)
   ./mos run                start macOS (default: snapshot=on, no disk drift)
   MOS_PERSIST=1 ./mos run  start macOS with writes hitting disk.img
@@ -166,7 +151,6 @@ Common workflow:
   ./mos stop               stop macOS
 
 Regression testing:
-  ./mos build-test         build the test image
   ./mos test 0             sanity (UEFI shell, no macOS)        — gold-diff regression
   ./mos test 1             OEM + bare-min stack (login screen)  — gold-diff regression  [TRANSIENT]
   ./mos test 2             patched + bare-min (binary swap)     — gold-diff regression

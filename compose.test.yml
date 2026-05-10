@@ -1,21 +1,17 @@
-# mos-docker — regression test stack.
+# mos-docker — test compose service (phase 4 interactive M5 dev only).
 #
-# Used by `./mos test <phase>` and CI. Builds + runs the test image which
-# extends production with OEM QEMU binary + screenshot capture tools.
-#
-# Run a single phase:
-#   docker compose -f compose.test.yml run --rm test 0
-#   docker compose -f compose.test.yml run --rm test 1
-#   ...
-#
-# All test runs share /data with production (the disk image is the same).
+# As of 2026-05-10, the test/production image split was dropped — there's
+# now ONE image (mos-docker:latest) containing patched + OEM QEMU + test
+# scripts + screenshot tools. Phases 0-3 don't need this compose file at
+# all; `./mos test 0..3` calls scripts/test-runner.sh directly via
+# `docker run`. This file exists only for `./mos test 4` (interactive M5
+# dev stack — apple-gfx-pci paravirt with no auto pass/fail since Stage
+# 20% gate has no gold yet).
 
 services:
   test:
-    image: mos-docker:test
-    build:
-      context: .
-      dockerfile: Dockerfile.test
+    image: mos-docker:latest
+    build: .
     # tini as PID 1: QEMU's exit (clean OR via KVM-kernel SIGSEGV) is reaped
     # deterministically. Without this, when phase 4's `exec qemu` makes QEMU
     # itself PID 1, an abnormal exit can leave dockerd's task-state machine

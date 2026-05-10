@@ -95,6 +95,22 @@ mos_hw_cpu_args() {
                                    #             pmap_query_page_info walks PTs assuming
                                    #             4K/2M leaves; PDPTE PS=1 GP-faults.
 
+            # Cosmetic — Skylake-Client model claims these but the host
+            # (Haswell-EP) doesn't have them. With `check` they'd be warned
+            # per-vCPU on every boot ("host doesn't support requested
+            # feature: ..."). Explicit negation removes them from the model
+            # BEFORE the check, so the warning never fires AND the guest
+            # CPUID is bit-identical to the un-negated form (KVM was already
+            # filtering them out — see memory/research_cpu_model_choice_2026_05_10.md).
+            -rdseed                # Broadwell+; not on Haswell-EP.
+            -adx                   # Broadwell+; not on Haswell-EP.
+            -smap                  # Broadwell+; not on Haswell-EP. (Different
+                                   #   from CR4.SMAP which is hardware-supported;
+                                   #   this is the CPUID feature bit only.)
+            -xsavec                # Skylake+; not on Haswell-EP.
+            -xgetbv1               # Skylake+; not on Haswell-EP.
+            -3dnowprefetch         # AMD-originated; not on Intel Haswell.
+
             check                  # [project] refuse to start if any feature unavailable
                                    #           (typo guard — better to fail loudly than
                                    #           silently lose a feature).

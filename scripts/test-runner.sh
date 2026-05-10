@@ -62,7 +62,11 @@ phase_config() {
             # boot-failed line + the PXE-attempt banner.
             BOOT_MARKER='BdsDxe: failed to load Boot|Start PXE over|UEFI Interactive Shell|EDK II'
             PHASE_SETTLE=15
-            DIFF_THRESHOLD_PCT=1
+            # 1% threshold was too tight — the boot animation / cursor
+            # blink in OVMF's PXE-fallback screen drifts ~1.08% per run.
+            # 1.5% gives ~3x headroom over the observed drift without
+            # masking real regressions.
+            DIFF_THRESHOLD_PCT=1.5
             ;;
         1|2)
             BOOT_MARKER='loginwindow \([0-9]+\)'

@@ -44,18 +44,30 @@ shift || true
 
 case "$cmd" in
     build)
-        # Resolve commit SHAs at build time so the ADD URL itself encodes
-        # the source version. This makes the layer cache invalidate
-        # automatically when either repo advances, without needing --no-cache.
-        # Falls back to literal "main" if git ls-remote fails (offline build).
-        MOSQEMU_SHA=$(git ls-remote https://github.com/MattJackson/mos-qemu.git main 2>/dev/null | cut -f1)
-        LIBAPPLEGFX_SHA=$(git ls-remote https://github.com/MattJackson/libapplegfx-vulkan.git main 2>/dev/null | cut -f1)
-        : "${MOSQEMU_SHA:=main}"
-        : "${LIBAPPLEGFX_SHA:=main}"
-        echo "Building mos-docker:latest with mos-qemu=${MOSQEMU_SHA:0:12} libapplegfx-vulkan=${LIBAPPLEGFX_SHA:0:12}"
+        # The heavy QEMU + libapplegfx compile lives in mos-qemu's CI:
+        #   ghcr.io/mattjackson/mos-qemu-patched:<tag>
+        #   ghcr.io/mattjackson/mos-qemu-oem:<version>
+        # This repo's Dockerfile COPY-froms those images, so `./mos build`
+        # is just runtime apk + scripts + OpenCore.img — typically ~30s.
+        #
+        # Default tags: :main (patched) and :11.0.0 (oem). Override via
+        # env if you need a specific commit:
+        #   MOSQEMU_IMAGE=ghcr.io/.../mos-qemu-patched:<sha> ./mos build
+        #   OEM_QEMU_IMAGE=ghcr.io/.../mos-qemu-oem:<ver>   ./mos build
+        MOSQEMU_IMAGE="${MOSQEMU_IMAGE:-ghcr.io/mattjackson/mos-qemu-patched:main}"
+        OEM_QEMU_IMAGE="${OEM_QEMU_IMAGE:-ghcr.io/mattjackson/mos-qemu-oem:11.0.0}"
+        echo "Building mos-docker:latest"
+        echo "  patched: $MOSQEMU_IMAGE"
+        echo "  oem:     $OEM_QEMU_IMAGE"
+        # Pull the artifact images explicitly so a tag advance on GHCR
+        # actually reaches us. Without this, docker compose build will
+        # happily reuse the cached image content even when the remote
+        # tag has moved.
+        docker pull "$MOSQEMU_IMAGE" || { echo "ERROR: pull failed for $MOSQEMU_IMAGE" >&2; exit 1; }
+        docker pull "$OEM_QEMU_IMAGE" || { echo "ERROR: pull failed for $OEM_QEMU_IMAGE" >&2; exit 1; }
         exec docker compose build \
-            --build-arg MOSQEMU_SHA="$MOSQEMU_SHA" \
-            --build-arg LIBAPPLEGFX_SHA="$LIBAPPLEGFX_SHA" \
+            --build-arg MOSQEMU_IMAGE="$MOSQEMU_IMAGE" \
+            --build-arg OEM_QEMU_IMAGE="$OEM_QEMU_IMAGE" \
             "$@"
         ;;
     build-test)

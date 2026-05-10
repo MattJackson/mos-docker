@@ -104,6 +104,18 @@ if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
     echo "  until libapplegfx-vulkan opcode handlers are implemented (M5)."
 fi
 
+# --- CPU model — see scripts/test.sh for full per-flag rationale ----
+# [macOS] Default Skylake-Client with TSX/VMX/1GB-pages stripped is the
+# xnu pmap-stability fix — `-cpu host` causes panics in pmap_remove_range
+# and pmap_query_page_info on dual-socket Haswell hosts. Override with
+# CPU_MODEL=host to bisect.
+CPU_MODEL="${CPU_MODEL:-Skylake-Client}"
+if [ "$CPU_MODEL" = "host" ]; then
+    CPU_ARGS="host,vendor=GenuineIntel,vmware-cpuid-freq=on"
+else
+    CPU_ARGS="${CPU_MODEL},vendor=GenuineIntel,kvm=on,vmware-cpuid-freq=on,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,-hle,-rtm,-vmx,-pdpe1gb,check"
+fi
+
 # --- Networking: macvtap + virtio-net-pci (known-good for macOS) ------
 
 # --- Trace backend setup ---------------------------------------------
@@ -218,9 +230,9 @@ exec $NUMA_PIN qemu-system-x86_64 \
     -enable-kvm \
     -m "${RAM_GB}G" \
     $MEM_BACKEND_ARGS \
-    -cpu "${CPU_MODEL:-host}",vendor=GenuineIntel,vmware-cpuid-freq=on \
+    -cpu "$CPU_ARGS" \
     -machine q35,accel=kvm \
-    -smp "${SMP:-4}",cores="${CORES:-4}" \
+    -smp "${SMP:-16}",sockets=1,cores="${CORES:-8}",threads="${THREADS:-2}" \
     -device qemu-xhci,id=xhci \
     -device "${KBD_DEVICE:-usb-kbd},bus=xhci.0" \
     -device "${TABLET_DEVICE:-usb-tablet},bus=xhci.0" \

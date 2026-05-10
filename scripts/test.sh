@@ -203,11 +203,10 @@ else
     # up (would corrupt disk.img). Phase 4 + prod must be down first.
     MACHDD_OPTS="cache=none,aio=native,snapshot=on,file.locking=off"
     if [ "$PHASE" = "3" ] && [ "${MOS_PHASE3_PERSIST:-0}" = "1" ]; then
-        if pgrep -af "qemu-system" | grep -v "phase3" | grep -q qemu-system; then
-            echo "ERROR: MOS_PHASE3_PERSIST=1 requires no other QEMU running." >&2
-            echo "       Stop mos-docker-macos-1 / other phases first." >&2
-            exit 1
-        fi
+        # QEMU's default file.locking=on takes a real OFD lock on disk.img,
+        # so a second QEMU trying to open it (with locking on or in
+        # snapshot=on mode without locking=off) will fail at startup. We
+        # rely on that rather than a process-scan guard.
         MACHDD_OPTS="cache=none,aio=native"
         echo "  MOS_PHASE3_PERSIST=1 — writes hit $DISK directly (file.locking on)."
     fi

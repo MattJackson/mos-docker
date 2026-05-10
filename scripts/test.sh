@@ -72,12 +72,22 @@ VNC_DISPLAY=$((VNC_PORT - 5900))
 
 # Pick the QEMU binary per phase. No silent fallback — predictable tests
 # require the right binary or hard-fail.
+#
+# QEMU_VARIANT env override:
+#   patched (default for all phases except 1)
+#       Our mos-qemu fork: applesmc + apple-gfx-pci + apple-magic-* HID
+#       + vmware_vga overlays. Required for paravirt (phase 4).
+#   oem
+#       Vanilla upstream QEMU 11.0.0 — no overlays. Useful for isolating
+#       whether a regression is in our patches vs upstream behaviour.
+#       Phase 1 uses this unconditionally for that bisect.
+QEMU_VARIANT="${QEMU_VARIANT:-patched}"
 QEMU_BIN=/usr/bin/qemu-system-x86_64
-if [ "$PHASE" = "1" ]; then
+if [ "$PHASE" = "1" ] || [ "$QEMU_VARIANT" = "oem" ]; then
     if [ ! -x /usr/bin/qemu-system-x86_64-oem ]; then
-        echo "ERROR: phase 1 requires /usr/bin/qemu-system-x86_64-oem (OEM unpatched binary)." >&2
-        echo "  This image is missing it — likely a production-only image. Rebuild with" >&2
-        echo "  Dockerfile.test (which installs both binaries)." >&2
+        echo "ERROR: OEM binary requested but /usr/bin/qemu-system-x86_64-oem missing." >&2
+        echo "  This image is missing it — likely a production-only image. Rebuild" >&2
+        echo "  with the patched + OEM split image." >&2
         exit 1
     fi
     QEMU_BIN=/usr/bin/qemu-system-x86_64-oem

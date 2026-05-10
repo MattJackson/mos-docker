@@ -54,7 +54,13 @@ phase_config() {
     INPUT_VERIFY=0
     case "$phase" in
         0)
-            BOOT_MARKER='UEFI Interactive Shell|EDK II'
+            # OVMF on the empty phase-0 disk falls through to PXE after
+            # the boot manager fails to find Boot0001. The "UEFI
+            # Interactive Shell" prompt only appears when a shell is
+            # actually loaded, which doesn't happen on the bare disk. Use
+            # the markers OVMF actually prints on this path: BdsDxe
+            # boot-failed line + the PXE-attempt banner.
+            BOOT_MARKER='BdsDxe: failed to load Boot|Start PXE over|UEFI Interactive Shell|EDK II'
             PHASE_SETTLE=15
             DIFF_THRESHOLD_PCT=1
             ;;
@@ -173,6 +179,7 @@ run_phase() {
         --cap-add NET_ADMIN \
         --memory 24g --cpus 32 \
         -e RAM=16 -e SMP=16 -e CORES=16 \
+        -e EXTERNAL_SUPERVISOR=1 \
         -v "$DATA_DIR":/data \
         -v "$BASELINES_DIR":/baselines \
         ${KBD_DEVICE:+-e KBD_DEVICE="$KBD_DEVICE"} \

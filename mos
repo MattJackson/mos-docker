@@ -88,40 +88,40 @@ case "$cmd" in
         exec docker compose up -d "$@"
         ;;
     test)
+        # ./mos test <phase|all>
+        #   N=0..3: regression check — code-driven serial boot marker +
+        #           visual gold-image diff. Returns 0 PASS, 1 FAIL. Inner
+        #           supervisor in test.sh is bypassed via
+        #           EXTERNAL_SUPERVISOR=1 so the outer test-runner.sh can
+        #           take its own gold-diff screendump.
+        #   all   : run phases 0..3 sequentially; exit code = number of
+        #           failures.
+        #   N=4   : interactive M5 dev stack (apple-gfx-pci paravirt). No
+        #           auto pass/fail because Stage 20% gate has no gold yet
+        #           — operator watches noVNC at port 6084.
         phase="${1:-}"
-        if [[ ! "$phase" =~ ^[0-4]$ ]]; then
-            echo "usage: $0 test <phase>  (phase: 0..4)" >&2
-            exit 2
-        fi
-        # No pre-test disk restore needed — scripts/test.sh attaches the
-        # MacHDD drive with snapshot=on, so every test write goes to a
-        # per-run overlay in QEMU's tmp and the underlying data/disk.img
-        # stays read-only. Container exits → overlay vanishes.
-        # Use ./mos restore-disk for ad-hoc manual restores if disk.img
-        # itself ever drifts (it shouldn't, given snapshot=on).
-        kill_prev_phase "$phase"
-        # Unique-per-invocation name with HHMMSS+PID suffix: distinguishes
-        # concurrent runs in `docker ps` without collision, and stays
-        # prefix-killable by kill_prev_phase ("mos-test-phase<N>-*").
-        exec docker compose -f compose.test.yml run --rm \
-            --name "mos-test-phase${phase}-$(date +%H%M%S)-$$" test "$phase"
-        ;;
-    verify)
-        # Code-driven phase verification: serial boot marker + visual gold diff.
-        # Exits 0 on PASS, 1 on FAIL. Tears down the container automatically.
-        phase="${1:-}"
-        if [[ ! "$phase" =~ ^[0-4]$ ]]; then
-            echo "usage: $0 verify <phase>  (phase: 0..4)" >&2
-            exit 2
-        fi
-        kill_prev_phase "$phase"
-        exec ./scripts/test-runner.sh "$phase"
-        ;;
-    verify-all)
-        # Run phases 0..3 sequentially with code-driven PASS/FAIL.
-        # Phase 4 (apple-gfx-pci paravirt) is excluded — no gold yet
-        # (M5 stage 20% gate; visible pixels = first acceptable gold).
-        exec ./scripts/test-runner.sh all
+        case "$phase" in
+            [0-3])
+                kill_prev_phase "$phase"
+                exec ./scripts/test-runner.sh "$phase"
+                ;;
+            all)
+                exec ./scripts/test-runner.sh all
+                ;;
+            4)
+                kill_prev_phase 4
+                # Phase 4: interactive M5 dev. test.sh attaches MacHDD with
+                # snapshot=on, so writes go to a per-run RAM overlay;
+                # data/disk.img stays read-only. Container exits → overlay
+                # vanishes.
+                exec docker compose -f compose.test.yml run --rm \
+                    --name "mos-test-phase4-$(date +%H%M%S)-$$" test 4
+                ;;
+            *)
+                echo "usage: $0 test <phase|all>  (phase: 0..4)" >&2
+                exit 2
+                ;;
+        esac
         ;;
     backup-disk)
         # Snapshot the current data/disk.img to /mnt/backup with a timestamped name.
@@ -167,16 +167,19 @@ Common workflow:
 
 Regression testing:
   ./mos build-test         build the test image
-  ./mos test 0             sanity (UEFI shell, no macOS)
-  ./mos test 1             OEM + bare-min stack (login screen)  [TRANSIENT]
-  ./mos test 2             patched + bare-min (binary swap)
-  ./mos test 3             + apple-kbd / apple-tablet (Apple HID swap)
-  ./mos test 4             + apple-gfx-pci (mos product, M5 stage 20% gate)
+  ./mos test 0             sanity (UEFI shell, no macOS)        — gold-diff regression
+  ./mos test 1             OEM + bare-min stack (login screen)  — gold-diff regression  [TRANSIENT]
+  ./mos test 2             patched + bare-min (binary swap)     — gold-diff regression
+  ./mos test 3             + apple-magic-keyboard / apple-mighty-mouse (Apple HID) — gold-diff regression
+  ./mos test 4             apple-gfx-pci paravirt (M5 dev stack) — INTERACTIVE, no auto pass/fail
+                                                                   (Stage 20% gate; no gold yet)
+  ./mos test all           run phases 0..3 in sequence; exit code = number of failures
 
-  ./mos verify <phase>     code-driven: launch + serial boot marker + visual
-                           gold diff. PASS/FAIL with metrics. Tears down.
-  ./mos verify-all         run phases 0..3 sequentially, exit 0 only if all pass.
-                           Phase 4 excluded (no gold; M5 stage 20% gate).
+For phases 0..3, "test" = launch container + watch serial for the boot
+marker (loginwindow for 1..3, OVMF marker for 0) + take a screendump +
+gold-diff against baselines/phase-N-gold.png. PASS only if BOTH the
+serial marker is hit AND the screendump matches gold within fuzz
+tolerance. Tears down the container automatically.
 
 Phase 1 is [TRANSIENT] — drops when our QEMU patches land upstream.
 End state (post-upstream): 0 sanity, 1 patched-baseline, 2 +apple-kbd,

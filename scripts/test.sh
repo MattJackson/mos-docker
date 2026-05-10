@@ -221,7 +221,16 @@ echo "================================================================"
 # auto-pass/fail (visual verification on noVNC over a long session).
 # Phases 0-3 are real regression tests: boot, watch the serial log for
 # known pass/fail markers, exit 0/1/2 with a clear verdict.
-if [ "$PHASE" = "4" ]; then
+#
+# EXTERNAL_SUPERVISOR=1 disables the inner pass/fail supervisor below
+# and just runs QEMU directly. test-runner.sh (./mos verify) sets this
+# so the OUTER supervisor can poll serial for the actual login marker
+# and take its own gold-diff screendump — without the inner supervisor
+# matching an early-userland marker, powering down QEMU, and exiting
+# the container before the screendump can fire (the bug behind the
+# "screenshot: FAILED to capture" + verify-runner false-PASS that
+# caused 2026-05-09 regression-test paralysis).
+if [ "$PHASE" = "4" ] || [ "${EXTERNAL_SUPERVISOR:-0}" = "1" ]; then
     exec "$QEMU_BIN" "${COMMON_ARGS[@]}"
 fi
 
@@ -243,11 +252,17 @@ case "$PHASE" in
         DEADLINE=60
         ;;
     1|2|3)
-        # macOS boot to login screen — detected via late-userland services
-        # appearing in the kernel log. Any of these markers means userspace
-        # has reached login window or beyond.
-        PASS_RE='AirPlayXPCHelper|AppleKeyStore.*session uid|WindowServer|loginwindow|securityd|mDNSResponder'
-        FAIL_RE='panic\(cpu |Debugger called|Unable to find driver for this platform|hfs_mountfs failed|kernel panic|"Sleeping"'
+        # PASS = macOS reached the actual login window with a real PID. The
+        # broader earlier regex (matching securityd / AirPlayXPCHelper /
+        # AppleKeyStore session-uid early-userland markers) reported PASS
+        # within 30s on a guest that subsequently panicked at mount-phase-2
+        # before ever rendering the login screen — false positives that
+        # masked a real boot regression. Only `loginwindow (<PID>)` proves
+        # the kernel + launchd actually ran user-facing graphical login.
+        PASS_RE='loginwindow \([0-9]+\)'
+        # Catch the userspace panics (mount-phase-2 SIGABRT etc.) that
+        # the broader matcher used to ignore.
+        FAIL_RE='panic\(cpu |Debugger called|Unable to find driver for this platform|hfs_mountfs failed|kernel panic|"Sleeping"|userspace panic|boot task failure'
         DEADLINE=300
         ;;
 esac

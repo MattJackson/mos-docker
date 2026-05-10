@@ -1,15 +1,20 @@
 #!/bin/bash
-# mos-docker test — run a regression test phase (0..4).
+# mos-docker test — run a regression test phase (0..4 or 9).
 #
-# This script is in the TEST image only (mos-docker:test) — production
-# images don't ship it. The test image extends production with the OEM
-# unpatched QEMU binary alongside the patched one, so phase 1 (OEM) and
-# phase 2 (patched) can be tested with a single image.
+# Hardware config comes from scripts/lib/hw-args.sh (single source of
+# truth shared with run.sh + install.sh). This script only handles
+# per-phase dispatch, supervisor pass/fail logic, and the QEMU exec.
 #
 # Phase chain (each isolates ONE variable on top of the previous):
 #   0  bare QEMU + OVMF + std-vga + empty disk         sanity (UEFI shell)
-#   1  OEM QEMU + macOS HD + std-vga + isa-applesmc  [TRANSIENT — drops when
-#       + ICH9 globals + usb-kbd                       our QEMU patches land
+#                                                      [project: phase 0
+#                                                      stays on slirp +
+#                                                      std-vga; no macOS,
+#                                                      no real network
+#                                                      needed]
+#   1  OEM QEMU + macOS HD + vmware-svga + isa-applesmc[TRANSIENT — drops
+#       + ICH9 globals + usb-kbd                       when our QEMU
+#                                                      patches land
 #                                                      upstream; OEM and
 #                                                      patched then converge]
 #                                                      bare-min stock-QEMU
@@ -18,25 +23,36 @@
 #   2  patched QEMU + same args                        binary swap (proves
 #                                                      patches don't regress
 #                                                      the bare-min login)
-#   3  + usb-kbd / usb-tablet (Apple HID via apple-magic-keyboard pending)                      Apple HID identity at
+#   3  + apple-magic-keyboard + apple-mighty-mouse     Apple HID identity at
 #                                                      the QEMU emulation
 #                                                      level (cosmetic vs
 #                                                      generic usb-kbd)
 #   4  + apple-gfx-pci paravirt GPU                    THE ACTUAL MOS PRODUCT
-#       (replaces std-vga; needs memfd backend         (currently black until
+#       (replaces vmware-svga; needs memfd backend     (currently black until
 #       for coherence)                                 libapplegfx-vulkan
 #                                                      opcode handlers ship;
 #                                                      M5 stage 20% gate)
 #
 # End-state chain (after upstream merges retire phase 1):
-#   0 sanity → 1 patched-baseline → 2 apple-gfx-pci product.
+#   0 sanity → 1 patched-baseline → 2 + apple HID → 3 apple-gfx-pci product.
 #
-# isa-applesmc + ICH9 globals (disable_s3, disable_s4, acpi-pci-hotplug-with-
-# bridge-support=off) are the bare minimum macOS Sequoia needs to boot past
-# AppleACPICPU power-management waits. Without them macOS hangs in repeated
-# busy timeouts (60s, 60s, 60s, 240s) and never reaches login. They're
-# present from Phase 1 onward.
+# Networking model (changed 2026-05-10):
+#   Phases 1+ default to macvtap (matches prod / install). Use
+#   NETWORK_MODE=slirp to opt back into user-mode for tests that need
+#   predictable host-fwd ssh. Phase 0 stays on slirp (firmware sanity,
+#   no real network needed; saves macvtap setup overhead).
+#
+# Display model (changed 2026-05-10):
+#   Phases 1+ default to vmware-svga (the April-2026 stable baseline).
+#   std-vga is NEVER a default for macOS phases — it's an escape hatch
+#   under DISPLAY_DEVICE=std-vga that prints a loud warning. Phase 0 is
+#   the one place std-vga is hardcoded (firmware sanity, no macOS).
+#   Phase 4 uses apple-gfx-pci.
 set -euo pipefail
+
+# Source the shared hardware-args lib.
+# shellcheck source=lib/hw-args.sh
+. /scripts/lib/hw-args.sh
 
 PHASE="${1:-}"
 case "$PHASE" in
@@ -45,7 +61,7 @@ case "$PHASE" in
         echo "Usage: test <phase>" >&2
         echo "  phase: 0..4 or 9" >&2
         echo "    0=sanity, 4=production paravirt (M5 dev)," >&2
-        echo "    9=interactive debug (writable disk, generic HID, std-vga," >&2
+        echo "    9=interactive debug (writable disk, generic HID, vmware-svga," >&2
         echo "       NO auto-powerdown — stays alive until you stop it)" >&2
         exit 2
         ;;
@@ -65,7 +81,7 @@ HMP_SOCK="$RUN_DIR/qemu-phase${PHASE}-monitor.sock"
 QMP_SOCK="$RUN_DIR/qemu-phase${PHASE}-qmp.sock"
 rm -f "$HMP_SOCK" "$QMP_SOCK"
 
-# Per-phase port offset (6080..6084) so phases can run alongside production.
+# Per-phase port offset (6080..6089) so phases can run alongside production.
 NOVNC_PORT="608${PHASE}"
 VNC_PORT=$((5900 + PHASE))
 VNC_DISPLAY=$((VNC_PORT - 5900))
@@ -122,289 +138,86 @@ NOVNC_BG=$!
 cleanup() {
     [ -n "${NOVNC_BG:-}" ] && kill "$NOVNC_BG" 2>/dev/null || true
     [ -n "${QEMU_PID:-}" ] && kill "$QEMU_PID" 2>/dev/null || true
+    # Tear down macvtap0 if we created one (set +e: cleanup is best-effort).
+    ip link del macvtap0 2>/dev/null || true
     wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# --- CPU model + feature flags ---------------------------------------
-# Default `Skylake-Client` (not `host`) — kholia/OSX-KVM canonical for
-# Sequoia. Override with CPU_MODEL=host to bisect a regression.
-CPU_MODEL="${CPU_MODEL:-Skylake-Client}"
-if [ "$CPU_MODEL" = "host" ]; then
-    # Bare-bones host passthrough — same flags the project shipped before
-    # the Skylake-Client switch. Keep available for bisecting whether a
-    # new symptom is CPU-model-related or something else.
-    CPU_ARGS="host,vendor=GenuineIntel,vmware-cpuid-freq=on"
-else
-    # Each feature, one per line, tagged:
-    #   [macOS]      Required for macOS to boot or function correctly.
-    #   [stability]  Strip a feature that trips xnu pmap under KVM.
-    #
-    # Joined into one comma-separated string for QEMU's -cpu argument.
-    CPU_FEATURES=(
-        # CPUID identity / hypervisor signature
-        vendor=GenuineIntel    # [macOS] xnu rejects AuthenticAMD; panic before kext init.
-        kvm=on                 # [macOS] advertise KVM in CPUID 0x40000000+; xnu takes
-                               #         faster paths under recognized hypervisors.
-        vmware-cpuid-freq=on   # [macOS] expose TSC + bus freq via CPUID 0x40000010,
-                               #         lets macOS skip an expensive calibration loop.
+# --- Compose QEMU args via the shared hw-args lib --------------------
+# QEMU_ARGS is the array each helper appends to. We assemble it
+# phase-by-phase below; the shared helpers cover everything that's
+# universal, and the per-phase logic only adds genuine differences.
+QEMU_ARGS=()
 
-        # ISA features macOS x86_64 ABI assumes are present
-        +invtsc                # [macOS] invariant TSC — mach_absolute_time drifts without.
-        +ssse3                 # [macOS] Snow Leopard+ baseline.
-        +sse4.2                # [macOS] Mountain Lion+ baseline.
-        +popcnt                # [macOS] used by xnu's compressor.
-        +avx                   # [macOS] Mavericks+ baseline.
-        +aes                   # [macOS] FileVault + APFS/HFS encryption.
-        +xsave                 # [macOS] context save/restore (mcontext).
-        +xsaveopt              # [macOS] optimized XSAVE — faster ctx switch.
-
-        # Negations — strip features that destabilize xnu under KVM.
-        -hle                   # [stability] TSX HLE bit. xnu vm_map_fork takes RTM
-        -rtm                   # [stability] TSX RTM bit. fast-paths that abort under
-                               #             KVM emulation, corrupting pmap free-lists.
-                               #             Caused "corrupt list around element"
-                               #             panics observed 2026-05-10.
-        -vmx                   # [stability] xnu doesn't run an inner hypervisor;
-                               #             CR4.VMXE leaking through changes pmap's
-                               #             TLB-invalidate sequence.
-        -pdpe1gb               # [stability] 1 GiB-page CPUID bit. xnu's
-                               #             pmap_query_page_info walks PTs assuming
-                               #             4K/2M leaves; PDPTE PS=1 GP-faults.
-
-        check                  # [project] refuse to start if any feature unavailable
-                               #           (typo guard — better to fail loudly than
-                               #           silently lose a feature).
-    )
-    # Join with commas. IFS=, in subshell so we don't pollute outer scope.
-    CPU_ARGS="${CPU_MODEL},$(IFS=,; echo "${CPU_FEATURES[*]}")"
+# [host] resource tuning + machine + memory backend (memfd when phase 4).
+# For phase 4 the lib auto-adds memory-backend-memfd because
+# MOS_USE_APPLE_GFX_PCI=1 is set below before machine_args. We have to
+# call display_args FIRST in this script to set MOS_USE_APPLE_GFX_PCI for
+# phase 4, then call machine_args after — but the hw-args lib's
+# convention is the opposite. To stay compatible with the lib, set the
+# env knob before calling machine_args.
+if [ "$PHASE" = "4" ]; then
+    export MOS_USE_APPLE_GFX_PCI=1
 fi
 
-# --- COMMON_ARGS — grouped by scope ----------------------------------
-# Three groups, in this order:
-#
-#   [host]     Resource tuning for the box you're on. Adjust freely
-#              (RAM, vCPU count, hypervisor choice).
-#   [macOS]    Universal macOS-on-QEMU/KVM-x86 recipe. Apply to any
-#              Linux host running stock macOS — not project-specific.
-#              Don't change unless you've read the linked context.
-#   [project]  Specific to this stack (phase model, log paths, hostfwd
-#              scheme, observability). Adapt to your scripting.
-#
-# A clean set of args for "macOS on a different host or framework"
-# would keep [macOS] verbatim, replace [host] with your tuning, and
-# rewrite [project] to your stack's conventions.
-COMMON_ARGS=(
-    # ===================================================================
-    # [host] — resource tuning
-    # ===================================================================
+mos_hw_machine_args "${RAM:-16}"
+mos_hw_cpu_args
+mos_hw_smp_args
 
-    # KVM hardware acceleration. Without this xnu runs under TCG
-    # (software interp) — boot takes 30+ min instead of ~90s. On non-
-    # Linux hosts substitute the local hypervisor (HVF, WHPX).
-    -enable-kvm
+# [macOS] firmware + Apple platform glue. Phase 0 skips applesmc / ICH9
+# globals — there's no macOS to satisfy.
+mos_hw_firmware_args
+if [ "$PHASE" -ge 1 ]; then
+    mos_hw_smbios_apple_args
+fi
 
-    # Guest RAM. macOS Sequoia floor is ~8 GB to boot at all, 16 GB for
-    # a usable GUI without thrashing. Tunable via RAM env var.
-    -m "${RAM:-16}G"
+# [macOS] USB HID. Phase 3 = "Apple HID lane" — flip defaults so the
+# regression suite exercises our patched USB devices. Other phases get
+# generic usb-kbd / usb-tablet (apple-kbd breaks the macOS Recovery
+# environment, and apple-mighty-mouse drifts under VNC remote-control).
+if [ "$PHASE" = "3" ]; then
+    KBD_DEVICE="${KBD_DEVICE:-apple-magic-keyboard}"
+    TABLET_DEVICE="${MOUSE_DEVICE:-${TABLET_DEVICE:-apple-mighty-mouse}}"
+fi
+mos_hw_usb_args
 
-    # SMP topology — vCPU count + topology layout. Counts here are
-    # [host] tuning, but the topology shape (sockets=1, paired threads)
-    # is [macOS] — see the [macOS] comment block above the array on
-    # why xnu's scheduler needs explicit sockets/cores/threads.
-    -smp "${SMP:-16}",sockets=1,cores="${CORES:-8}",threads="${THREADS:-2}"
+# [macOS] Display device. Phase 0 = std-vga (firmware sanity). Phase 4 =
+# apple-gfx-pci (already wired by the env knob set above). Phases 1-3 +
+# 9 = vmware-svga via mos_hw_display_args (the default). std-vga is
+# NEVER a default for macOS phases.
+if [ "$PHASE" = "0" ]; then
+    mos_hw_display_phase0_stdvga_args
+else
+    mos_hw_display_args
+fi
 
-    # ===================================================================
-    # [macOS] — universal macOS-on-QEMU/KVM-x86 recipe
-    # ===================================================================
+# [project] Networking. Phases 1+ default to macvtap (matches prod);
+# phase 0 stays on slirp (firmware sanity, no real network needed).
+# NETWORK_MODE=slirp opts back in to user-mode for any phase.
+if [ "$PHASE" = "0" ]; then
+    NETWORK_MODE=slirp mos_hw_netdev_args $((22220 + PHASE))
+else
+    mos_hw_netdev_args $((22220 + PHASE))
+fi
 
-    # CPU model + feature set. Default Skylake-Client with TSX/VMX/1GB-
-    # pages stripped is the xnu pmap-stability fix; `-cpu host` causes
-    # panics in pmap_remove_range and pmap_query_page_info. See the
-    # long comment block above the array for per-flag rationale.
-    -cpu "$CPU_ARGS"
-
-    # Intel Q35 chipset — PCIe-native + ICH9 southbridge + AHCI. Apple
-    # firmware expects Q35-style ACPI; older `pc-i440fx` boots but
-    # AppleACPIPlatform trips on missing PCIe extension methods.
-    -machine q35
-
-    # OVMF UEFI firmware. Two pflash drives by UEFI convention:
-    # CODE = read-only firmware image, VARS = NVRAM (Apple identity,
-    # boot-args, BootOrder). macOS won't boot from non-UEFI firmware
-    # (no legacy BIOS path in modern xnu).
-    -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd
-    -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd
-
-    # SMBIOS type 2 = baseboard table placeholder. Apple identity
-    # (Mac-CFF7D910... / iMac20,1) is overwritten by OpenCore
-    # PlatformInfo at boot, but the table must EXIST in firmware first.
-    # Without `-smbios type=2`, OpenCore has nowhere to write into.
-    -smbios type=2
-
-    # Intel 82545EM NIC — Apple ships a stock driver
-    # (AppleIntel8254XEthernet.kext) for this exact chip. Other
-    # emulated NICs boot but show "no network" without third-party
-    # kexts; e1000-82545em is the zero-extra-kext choice.
-    -device e1000-82545em,netdev=net0
-
-    # ===================================================================
-    # [project] — networking, display, observability for this stack
-    # ===================================================================
-
-    # User-mode (slirp) NAT with hostfwd for ssh. Guest gets 10.0.2.15
-    # / gateway 10.0.2.2. Per-phase port offset (22220+PHASE → 22) so
-    # phases can run side-by-side. Prod path (run.sh) uses macvtap for
-    # real LAN IP; test stays on slirp for deterministic regression
-    # behavior independent of host LAN.
-    -netdev "user,id=net0,hostfwd=tcp::$((22220 + PHASE))-:22"
-
-    # No SDL/GTK window — we drive display via VNC so a headless
-    # container works the same as one with a console attached.
+# [project] Display backend (no SDL/GTK; everything goes through VNC) +
+# guest-error logging. These belong with [project] observability, not
+# the shared hardware lib.
+QEMU_ARGS+=(
     -display none
-
-    # VNC server bound to loopback only. Bundled noVNC bridges
-    # 127.0.0.1:5900+N → 0.0.0.0:6080+N for browser access. Loopback
-    # keeps QEMU off the host's open-port surface.
-    -vnc 127.0.0.1:${VNC_DISPLAY}
-
-    # Kernel serial console → file. xnu boot-args set `serial=3`
-    # (kernel printf to COM1); captures everything plus panic
-    # stackshots. file: chardev (not stdio) survives QEMU exit without
-    # truncation.
-    -serial file:"$SERIAL_LOG"
-
-    # HMP (Human Monitor Protocol) interactive control via unix socket.
-    # Used by test.sh's qmp_send for system_powerdown, and by operators
-    # with `socat - unix-connect:$HMP_SOCK`.
-    -monitor unix:"$HMP_SOCK",server,nowait
-
-    # QMP (QEMU Machine Protocol) — JSON-over-unix programmatic control.
-    # Same socket-server pattern as HMP, scripted use: screenshots,
-    # query-pci, graceful poweroff.
-    -qmp unix:"$QMP_SOCK",server,nowait
-
-    # Log guest CPU faults + unimplemented-feature accesses to
+    # [project] log guest CPU faults + unimplemented-feature accesses to
     # qemu-debug.log. Critical for apple-gfx-pci debugging — MMIO
     # accesses that hit unimplemented paths surface here. WARNING:
     # `qemu_log()` lands here, NOT in `docker logs` stderr. See
     # memory/feedback_m5_log_locations.md before adding host-side logs.
     -d guest_errors,unimp
-
-    # Destination file for -d. Inside container, mapped to host
-    # /mnt/docker/mos-data/logs/qemu-debug.log via /data bind-mount.
     -D /data/logs/qemu-debug.log
 )
 
-# --- Display device per phase ----------------------------------------
-# [project] Phase 4 = M5 dev = apple-gfx-pci (the paravirt GPU we're
-# building). Phases 0-3 + 9 use a non-paravirt display.
-#
-# [macOS] DISPLAY_DEVICE selects between three options for non-phase-4:
-#   vmware-svga (default for phases 1-3 + 9)
-#       Patched VMware SVGA II from qemu-mos15. Known stable for macOS
-#       Sequoia GUI (loginwindow + WindowServer + System Settings) when
-#       running with stock kexts; this is the April-2026 baseline that
-#       was running solidly. Resolution auto-negotiated by the macOS
-#       guest's VMwareSVGA driver, no EDID dance needed.
-#   std-vga
-#       `-device VGA` with explicit xres/yres/vgamem_mb/edid=on. Boots
-#       and renders, but causes GUI instability under userland load
-#       (System Settings hangs, loginwindow respawn) compared to
-#       vmware-svga on this kernel/QEMU stack. Phase 0 (firmware sanity)
-#       still uses this — phase 0 doesn't run macOS.
-#   none
-#       For tests that don't need a display at all.
-#
-# [macOS] apple-gfx-pci needs `memory-backend-memfd,share=on` —
-# libapplegfx-vulkan does mremap-alias tricks that need a backed file
-# descriptor, not anonymous RAM.
-if [ "$PHASE" = "4" ]; then
-    COMMON_ARGS+=( -vga none -device apple-gfx-pci )
-    COMMON_ARGS+=( -object "memory-backend-memfd,id=mem,size=${RAM:-8}G,share=on" )
-elif [ "$PHASE" = "0" ]; then
-    # Firmware-sanity phase, no macOS — std-vga is fine.
-    COMMON_ARGS+=( -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on )
-else
-    DISPLAY_DEVICE="${DISPLAY_DEVICE:-vmware-svga}"
-    case "$DISPLAY_DEVICE" in
-        vmware-svga)
-            COMMON_ARGS+=( -vga none -device vmware-svga )
-            ;;
-        std-vga)
-            COMMON_ARGS+=( -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on )
-            ;;
-        none)
-            COMMON_ARGS+=( -vga none )
-            ;;
-        *)
-            # Trust operator override — pass through verbatim. e.g.
-            # DISPLAY_DEVICE='qxl-vga,vgamem_mb=64' for QXL.
-            COMMON_ARGS+=( -device "$DISPLAY_DEVICE" )
-            ;;
-    esac
-fi
-
-# --- macOS firmware platform glue ------------------------------------
-# [macOS] All four lines are mandatory for macOS to boot past
-# AppleACPICPU on any KVM host. Phase 0 skips them (sanity test, no
-# macOS).
-#
-#   isa-applesmc with osk=...: emulates Apple's System Management
-#   Controller. The OSK string is the unlock secret xnu checks during
-#   boot. Without applesmc, AppleSMC.kext fails to attach and DSMOS
-#   never decrypts FileVault-encrypted Apple binaries — boot stops at
-#   "DSMOS has arrived" never appearing.
-#
-#   ICH9-LPC.disable_s3=1 / disable_s4=1: tell macOS the platform has
-#   no S3 (sleep) / S4 (hibernate) states. Without these, AppleACPI
-#   tries to set up sleep state machines that crash under KVM.
-#
-#   acpi-pci-hotplug-with-bridge-support=off: disables QEMU's PCI
-#   hotplug ACPI methods on bridges. macOS's IOPCIBridge gets confused
-#   by their presence (expects either always-present devices or pure
-#   hot-add — not the QEMU "may or may not be there" hybrid).
-if [ "$PHASE" -ge 1 ]; then
-    COMMON_ARGS+=(
-        -device 'isa-applesmc,osk=ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc'
-        -global ICH9-LPC.disable_s3=1
-        -global ICH9-LPC.disable_s4=1
-        -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off
-    )
-fi
-
-# --- USB HID (keyboard + pointer) ------------------------------------
-# [project] Phase 3 is the "Apple HID" lane by convention — its
-# defaults flip to apple-magic-keyboard / apple-mighty-mouse so the HID
-# regression suite exercises our patched USB devices. Other phases use
-# generic usb-kbd / usb-tablet because:
-#   [macOS]   usb-tablet is an absolute-positioning pointer; VNC
-#             remote-control needs absolute pointers, not relative
-#             mice (apple-mighty-mouse drifts under VNC; see
-#             memory/feedback_apple_hid_vnc_pointer_drift.md).
-#   [macOS]   apple-kbd / apple-tablet break the macOS Recovery
-#             environment (USB binding fails); install paths must use
-#             generic devices (memory/feedback_apple_hid_breaks_recovery.md).
-#
-# Override knobs:
-#   KBD_DEVICE    keyboard type (default: usb-kbd; phase 3: apple-magic-keyboard)
-#   MOUSE_DEVICE  pointer type (canonical name)
-#   TABLET_DEVICE legacy alias for MOUSE_DEVICE (back-compat)
-if [ "$PHASE" = "3" ]; then
-    KBD_DEVICE="${KBD_DEVICE:-apple-magic-keyboard}"
-    TABLET_DEVICE="${MOUSE_DEVICE:-${TABLET_DEVICE:-apple-mighty-mouse}}"
-else
-    KBD_DEVICE="${KBD_DEVICE:-usb-kbd}"
-    TABLET_DEVICE="${MOUSE_DEVICE:-${TABLET_DEVICE:-usb-tablet}}"
-fi
-COMMON_ARGS+=(
-    # [macOS] qemu-xhci = USB 3 controller. macOS prefers xhci over
-    # ehci/uhci — its USB stack auto-binds to xhci, while ehci needs
-    # AppleUSBEHCI which has occasional binding flake on some models.
-    -device qemu-xhci,id=xhci
-    -device "${KBD_DEVICE},bus=xhci.0"
-    -device "${TABLET_DEVICE},bus=xhci.0"
-)
+# [project] I/O — serial log + HMP/QMP sockets + VNC. Test phases use
+# the simpler `file:` chardev style for serial (one log per phase boot).
+mos_hw_io_args "$SERIAL_LOG" "$HMP_SOCK" "$QMP_SOCK" "$VNC_DISPLAY" "file"
 
 # --- Disk attach -----------------------------------------------------
 # [project] Phase 0 is the empty-disk sanity test (OVMF should fall
@@ -421,44 +234,21 @@ COMMON_ARGS+=(
 #   PHASE=9                always writable + locked. The point of phase
 #                          9 is interactive use that survives reboot.
 if [ "$PHASE" = "0" ]; then
-    COMMON_ARGS+=(
-        # [project] Phase 0 only: empty 1G disk on virtio-blk for the
-        # firmware-sanity test (no OpenCore, no macOS).
-        -drive "id=disk0,if=none,file=$DISK,format=raw"
-        -device virtio-blk-pci,drive=disk0
-    )
+    mos_hw_disk_phase0_args "$DISK"
 else
-    MACHDD_OPTS="cache=none,aio=native,snapshot=on,file.locking=off"
+    MACHDD_OPTS="snapshot=on,file.locking=off"
     if [ "$PHASE" = "3" ] && [ "${MOS_PHASE3_PERSIST:-0}" = "1" ]; then
         # QEMU's default file.locking=on takes a real OFD lock on
         # disk.img — a second concurrent writer fails at startup. We
         # rely on that rather than a process-scan guard.
-        MACHDD_OPTS="cache=none,aio=native"
+        MACHDD_OPTS=""
         echo "  MOS_PHASE3_PERSIST=1 — writes hit $DISK directly (file.locking on)."
     fi
     if [ "$PHASE" = "9" ]; then
-        MACHDD_OPTS="cache=none,aio=native"
+        MACHDD_OPTS=""
         echo "  Phase 9 — writes hit $DISK directly (file.locking on)."
     fi
-    COMMON_ARGS+=(
-        # [macOS] ICH9 AHCI controller — Apple's stock SATA driver
-        # (AppleAHCIPort) binds here. OpenCore.img must be on AHCI/IDE
-        # because OVMF's NVMe path doesn't see it on Q35 by default.
-        -device ich9-ahci,id=sata
-
-        # [macOS] OpenCore EFI image — Apple identity, Kernel/Add
-        # entries, NVRAM presets, boot-args. Loaded via IDE on the AHCI
-        # bus. snapshot=on because OpenCore.img source-of-truth lives
-        # in this repo's efi/ directory; runtime mutation is unwanted.
-        -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
-        -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-
-        # [macOS] macOS system disk on virtio-blk — IOVirtIOBlock binds
-        # cleanly with no extra kexts (faster + lower CPU than emulated
-        # AHCI for the data disk).
-        -drive "id=MacHDD,if=none,file=$DISK,format=raw,$MACHDD_OPTS"
-        -device virtio-blk-pci,drive=MacHDD
-    )
+    mos_hw_disk_args "$OPENCORE" "$DISK" "$MACHDD_OPTS" ""
 fi
 
 echo "================================================================"
@@ -469,33 +259,8 @@ echo "    serial log:  $SERIAL_LOG"
 echo "    QMP socket:  $QMP_SOCK"
 echo "    noVNC:       http://0.0.0.0:${NOVNC_PORT}/vnc.html?autoconnect=1"
 
-# --- NUMA pinning ([host] for multi-socket, [macOS] for stability) ---
-# [host]   The pinning policy itself (which node) is host-specific.
-# [macOS]  Whether to pin AT ALL is universal: xnu's pmap can't tolerate
-#          cross-socket vCPU scheduling under userland load. PT walks
-#          (`pmap_remove_range`, `pmap_query_page_info`, corpse-fork
-#          paths) take IPI-coordinated TLB shootdowns; cross-socket
-#          atomics on PTEs widen race windows enough to corrupt
-#          vm_map_entry lists and GP-fault.
-#
-# Concrete observations on 2x E5-2699 v3 (36C/72T NUMA-2):
-#   no pin: BiomeAgent panic at ~5min, ContinuityCapture at ~3min
-#   pin=0:  cleanly past both (12+ min before the pdpe1gb-class panic)
-#
-# Default: pin to NUMA node 0. Override with MOS_NUMA_NODE=<n> or empty
-# string to disable. No-op on single-node hosts (--cpunodebind=0 just
-# uses the only node).
-NUMA_PIN=""
-if [ -n "${MOS_NUMA_NODE-0}" ]; then
-    if command -v numactl >/dev/null 2>&1; then
-        NUMA_PIN="numactl --cpunodebind=${MOS_NUMA_NODE:-0} --membind=${MOS_NUMA_NODE:-0}"
-        echo "    NUMA pin:    node ${MOS_NUMA_NODE:-0} (set MOS_NUMA_NODE= to disable)"
-    else
-        echo "    NUMA pin:    SKIPPED — numactl missing in image"
-    fi
-else
-    echo "    NUMA pin:    disabled (MOS_NUMA_NODE empty)"
-fi
+# Resolve numactl prefix (may be empty); echoes status into the banner.
+mos_hw_numa_pin
 echo "================================================================"
 
 # Phase 4 is the M5 development stack — runs interactively without
@@ -512,7 +277,8 @@ echo "================================================================"
 # "screenshot: FAILED to capture" + verify-runner false-PASS that
 # caused 2026-05-09 regression-test paralysis).
 if [ "$PHASE" = "4" ] || [ "$PHASE" = "9" ] || [ "${EXTERNAL_SUPERVISOR:-0}" = "1" ]; then
-    exec $NUMA_PIN "$QEMU_BIN" "${COMMON_ARGS[@]}"
+    # shellcheck disable=SC2086  # NUMA_PIN is intentionally word-split.
+    exec $NUMA_PIN "$QEMU_BIN" "${QEMU_ARGS[@]}"
 fi
 
 # --- Phase 0-3 supervisor ---
@@ -549,7 +315,8 @@ case "$PHASE" in
 esac
 
 # Start QEMU in the background; cleanup() (above) tears it down on exit.
-$NUMA_PIN "$QEMU_BIN" "${COMMON_ARGS[@]}" &
+# shellcheck disable=SC2086  # NUMA_PIN is intentionally word-split.
+$NUMA_PIN "$QEMU_BIN" "${QEMU_ARGS[@]}" &
 QEMU_PID=$!
 
 qmp_send() {

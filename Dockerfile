@@ -88,6 +88,10 @@ COPY --from=qemu-oem /usr/bin/qemu-system-x86_64 /usr/bin/qemu-system-x86_64-oem
 COPY --from=opencore-builder /tmp/OpenCore.img /usr/share/mos-docker/OpenCore.img
 
 # 6. Dispatcher + sub-scripts (volatile — change frequently).
+#    scripts/lib/ holds shared sourced libraries (e.g. hw-args.sh —
+#    single source of truth for QEMU hardware config consumed by
+#    run.sh / test.sh / install.sh-via-run).
+COPY scripts/lib           /scripts/lib
 COPY scripts/entrypoint.sh /scripts/entrypoint.sh
 COPY scripts/install.sh    /scripts/install.sh
 COPY scripts/run.sh        /scripts/run.sh

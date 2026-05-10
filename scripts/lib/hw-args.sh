@@ -14,7 +14,7 @@
 #
 # The April-2026 stable baseline (operator-confirmed 2026-05-10):
 #   CPU       Skylake-Client + tagged feature set + TSX/VMX/1GB-pages stripped
-#   SMP       16 vCPUs / sockets=1, cores=4, threads=4  (iMac20,1 SMBIOS shape)
+#   SMP       16 vCPUs / sockets=1, cores=8, threads=2  (iMac20,1 SMBIOS shape)
 #   Memory    16 GiB default + memfd backend when apple-gfx-pci is on
 #   Machine   q35,accel=kvm
 #   Firmware  OVMF (CODE+VARS pflash)
@@ -125,14 +125,14 @@ mos_hw_cpu_args() {
 # ---------------------------------------------------------------------------
 # [host]   vCPU count is host tuning.
 # [macOS]  topology shape (sockets=1) is universal — xnu's scheduler needs
-#          explicit sockets/cores/threads; iMac20,1 SMBIOS = 4C/16T so
-#          cores=4, threads=4 matches the canonical pair.
+#          explicit sockets/cores/threads; iMac20,1 SMBIOS = 8C/16T so
+#          cores=8, threads=2 matches the canonical pair.
 #
 # SMP must equal sockets * cores * threads. Bumping SMP requires bumping
 # CORES (or THREADS) in lockstep. Defaults below match the iMac20,1 shape.
 mos_hw_smp_args() {
     QEMU_ARGS+=(
-        -smp "${SMP:-16},sockets=1,cores=${CORES:-4},threads=${THREADS:-4}"
+        -smp "${SMP:-16},sockets=1,cores=${CORES:-8},threads=${THREADS:-2}"
     )
 }
 

@@ -32,8 +32,8 @@ services:
     environment:
       - DISK_SIZE=${DISK_SIZE:-256G}
       - RAM=${RAM:-8}
-      - SMP=${SMP:-4}
-      - CORES=${CORES:-4}
+      - SMP=${SMP:-16}
+      - CORES=${CORES:-8}
       - MOS_QEMU_BUNDLED_NOVNC=1        # install needs noVNC for the user
 
   macos:
@@ -62,7 +62,7 @@ services:
       - HOST_IFACE=${HOST_IFACE:-}      # empty = user-mode networking; set for macvtap
       - RAM=${RAM:-16}
       - SMP=${SMP:-16}
-      - CORES=${CORES:-16}
+      - CORES=${CORES:-8}
       - GPU_CORES=${GPU_CORES:-8}
       - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}

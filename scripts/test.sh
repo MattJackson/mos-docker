@@ -288,15 +288,23 @@ COMMON_ARGS=(
 
 # --- Display device per phase ----------------------------------------
 # [project] Phase 4 = M5 dev = apple-gfx-pci (the paravirt GPU we're
-# building); 0-3 + 9 = std-vga as the known-good baseline that lets
-# loginwindow / WindowServer render without our half-built stack.
+# building). Phases 0-3 + 9 use a non-paravirt display.
 #
-# [macOS] std-vga vs `-vga std`: plain `-vga std` gives a small
-# framebuffer that makes noVNC see only the top-left quadrant of
-# macOS's render surface. The explicit `-device VGA xres/yres/
-# vgamem_mb/edid=on` form fixes that — gives macOS a 1920x1080@32
-# framebuffer to render into and an EDID so AppleSupport / NSScreen
-# both see a real "monitor".
+# [macOS] DISPLAY_DEVICE selects between three options for non-phase-4:
+#   vmware-svga (default for phases 1-3 + 9)
+#       Patched VMware SVGA II from qemu-mos15. Known stable for macOS
+#       Sequoia GUI (loginwindow + WindowServer + System Settings) when
+#       running with stock kexts; this is the April-2026 baseline that
+#       was running solidly. Resolution auto-negotiated by the macOS
+#       guest's VMwareSVGA driver, no EDID dance needed.
+#   std-vga
+#       `-device VGA` with explicit xres/yres/vgamem_mb/edid=on. Boots
+#       and renders, but causes GUI instability under userland load
+#       (System Settings hangs, loginwindow respawn) compared to
+#       vmware-svga on this kernel/QEMU stack. Phase 0 (firmware sanity)
+#       still uses this — phase 0 doesn't run macOS.
+#   none
+#       For tests that don't need a display at all.
 #
 # [macOS] apple-gfx-pci needs `memory-backend-memfd,share=on` —
 # libapplegfx-vulkan does mremap-alias tricks that need a backed file
@@ -304,8 +312,27 @@ COMMON_ARGS=(
 if [ "$PHASE" = "4" ]; then
     COMMON_ARGS+=( -vga none -device apple-gfx-pci )
     COMMON_ARGS+=( -object "memory-backend-memfd,id=mem,size=${RAM:-8}G,share=on" )
-else
+elif [ "$PHASE" = "0" ]; then
+    # Firmware-sanity phase, no macOS — std-vga is fine.
     COMMON_ARGS+=( -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on )
+else
+    DISPLAY_DEVICE="${DISPLAY_DEVICE:-vmware-svga}"
+    case "$DISPLAY_DEVICE" in
+        vmware-svga)
+            COMMON_ARGS+=( -vga none -device vmware-svga )
+            ;;
+        std-vga)
+            COMMON_ARGS+=( -device VGA,xres=1920,yres=1080,vgamem_mb=64,edid=on )
+            ;;
+        none)
+            COMMON_ARGS+=( -vga none )
+            ;;
+        *)
+            # Trust operator override — pass through verbatim. e.g.
+            # DISPLAY_DEVICE='qxl-vga,vgamem_mb=64' for QXL.
+            COMMON_ARGS+=( -device "$DISPLAY_DEVICE" )
+            ;;
+    esac
 fi
 
 # --- macOS firmware platform glue ------------------------------------

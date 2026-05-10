@@ -71,6 +71,8 @@ RUN --mount=type=cache,target=/root/.ccache \
     && cp /tmp/mos-qemu/hw/misc/applesmc.c hw/misc/applesmc.c \
     && cp /tmp/mos-qemu/hw/display/vmware_vga.c hw/display/vmware_vga.c \
     && cp /tmp/mos-qemu/hw/usb/dev-hid.c hw/usb/dev-hid.c \
+    && cp /tmp/mos-qemu/hw/usb/dev-hid-apple-trackpad.c hw/usb/dev-hid-apple-trackpad.c \
+    && cp /tmp/mos-qemu/hw/usb/meson.build hw/usb/meson.build \
     && cp /tmp/mos-qemu/hw/display/apple-gfx-pci-linux.c hw/display/ \
     && cp /tmp/mos-qemu/hw/display/apple-gfx-common-linux.c hw/display/ \
     && cp /tmp/mos-qemu/hw/display/apple-gfx-linux.h hw/display/ \

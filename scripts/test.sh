@@ -193,17 +193,29 @@ if [ "$PHASE" = "0" ]; then
         -device virtio-blk-pci,drive=disk0
     )
 else
+    # Default: snapshot=on,file.locking=off — ephemeral writes, phases can
+    # run concurrently with each other + with prod. Safe ONLY because every
+    # write goes to a per-run RAM overlay; disk.img is never mutated.
+    #
+    # MOS_PHASE3_PERSIST=1 (phase 3 only): writes hit disk.img directly with
+    # a real exclusive lock. Used to enable Remote Login or save guest
+    # settings interactively. Refuses to run if any other mos container is
+    # up (would corrupt disk.img). Phase 4 + prod must be down first.
+    MACHDD_OPTS="cache=none,aio=native,snapshot=on,file.locking=off"
+    if [ "$PHASE" = "3" ] && [ "${MOS_PHASE3_PERSIST:-0}" = "1" ]; then
+        if pgrep -af "qemu-system" | grep -v "phase3" | grep -q qemu-system; then
+            echo "ERROR: MOS_PHASE3_PERSIST=1 requires no other QEMU running." >&2
+            echo "       Stop mos-docker-macos-1 / other phases first." >&2
+            exit 1
+        fi
+        MACHDD_OPTS="cache=none,aio=native"
+        echo "  MOS_PHASE3_PERSIST=1 — writes hit $DISK directly (file.locking on)."
+    fi
     COMMON_ARGS+=(
         -device ich9-ahci,id=sata
         -drive "id=OpenCoreBoot,if=none,format=raw,file=$OPENCORE,snapshot=on"
         -device ide-hd,bus=sata.2,drive=OpenCoreBoot
-        # file.locking=off lets phases run concurrently with each other +
-        # with prod. Safe ONLY because snapshot=on (just below) sends every
-        # write to a per-run RAM overlay; the underlying disk.img is never
-        # mutated. If you ever remove snapshot=on here, restore locking or
-        # you will silently corrupt disk.img when two phases (or prod) run
-        # at once. test.sh deliberately doesn't honor MOS_PERSIST.
-        -drive "id=MacHDD,if=none,file=$DISK,format=raw,cache=none,aio=native,snapshot=on,file.locking=off"
+        -drive "id=MacHDD,if=none,file=$DISK,format=raw,$MACHDD_OPTS"
         -device virtio-blk-pci,drive=MacHDD
     )
 fi

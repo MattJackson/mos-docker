@@ -104,16 +104,30 @@ if [ "${MOS_USE_APPLE_GFX_PCI:-0}" = "1" ]; then
     echo "  until libapplegfx-vulkan opcode handlers are implemented (M5)."
 fi
 
-# --- CPU model — see scripts/test.sh for full per-flag rationale ----
-# [macOS] Default Skylake-Client with TSX/VMX/1GB-pages stripped is the
-# xnu pmap-stability fix — `-cpu host` causes panics in pmap_remove_range
-# and pmap_query_page_info on dual-socket Haswell hosts. Override with
-# CPU_MODEL=host to bisect.
+# --- CPU model + feature flags — see scripts/test.sh for full inline
+# per-flag rationale. Same set, kept identical here so prod and test
+# behave the same. CPU_MODEL=host as override available for bisecting.
 CPU_MODEL="${CPU_MODEL:-Skylake-Client}"
 if [ "$CPU_MODEL" = "host" ]; then
     CPU_ARGS="host,vendor=GenuineIntel,vmware-cpuid-freq=on"
 else
-    CPU_ARGS="${CPU_MODEL},vendor=GenuineIntel,kvm=on,vmware-cpuid-freq=on,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,-hle,-rtm,-vmx,-pdpe1gb,check"
+    CPU_FEATURES=(
+        vendor=GenuineIntel    # [macOS] xnu rejects non-Intel CPUID.
+        kvm=on                 # [macOS] advertise KVM hypervisor.
+        vmware-cpuid-freq=on   # [macOS] expose TSC freq; skip calibration.
+        +invtsc                # [macOS] invariant TSC for mach_absolute_time.
+        +ssse3 +sse4.2 +popcnt # [macOS] x86_64 ABI baseline.
+        +avx +aes              # [macOS] Mavericks+ baseline + FileVault.
+        +xsave +xsaveopt       # [macOS] context save/restore.
+        -hle -rtm              # [stability] strip TSX (xnu vm_map_fork RTM
+                               #             abort corrupts pmap free-lists).
+        -vmx                   # [stability] strip VMX (CR4.VMXE leakage flips
+                               #             xnu's TLB-invalidate sequence).
+        -pdpe1gb               # [stability] strip 1 GiB pages (xnu pmap
+                               #             GP-faults on PDPTE PS=1).
+        check                  # [project] refuse to start on missing feature.
+    )
+    CPU_ARGS="${CPU_MODEL},$(IFS=,; echo "${CPU_FEATURES[*]}")"
 fi
 
 # --- Networking: macvtap + virtio-net-pci (known-good for macOS) ------

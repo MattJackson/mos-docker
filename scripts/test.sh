@@ -116,24 +116,58 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# --- CPU model (xnu pmap stability) ----------------------------------
-# Default `Skylake-Client` not `host`. xnu's pmap takes branches on
-# CPUID feature bits that misbehave under KVM:
-#   -pdpe1gb : 1 GiB-page CPUID bit. xnu's pmap_query_page_info walks
-#              page tables assuming 4K/2M leaves; a PDPTE with PS=1
-#              GP-faults the kernel.
-#   -hle -rtm: TSX. xnu's vm_map_fork takes RTM fast-paths that abort
-#              under KVM emulation, corrupting pmap free-lists →
-#              "corrupt list around element" panics observed 2026-05-10.
-#   -vmx     : xnu doesn't use guest VMX; CR4.VMXE leaking through
-#              flips pmap's TLB-invalidate sequence.
-# kholia/OSX-KVM canonical for Sequoia: see notes.md "Sequoia + Tahoe".
-# Override with CPU_MODEL=host to bisect.
+# --- CPU model + feature flags ---------------------------------------
+# Default `Skylake-Client` (not `host`) — kholia/OSX-KVM canonical for
+# Sequoia. Override with CPU_MODEL=host to bisect a regression.
 CPU_MODEL="${CPU_MODEL:-Skylake-Client}"
 if [ "$CPU_MODEL" = "host" ]; then
+    # Bare-bones host passthrough — same flags the project shipped before
+    # the Skylake-Client switch. Keep available for bisecting whether a
+    # new symptom is CPU-model-related or something else.
     CPU_ARGS="host,vendor=GenuineIntel,vmware-cpuid-freq=on"
 else
-    CPU_ARGS="${CPU_MODEL},vendor=GenuineIntel,kvm=on,vmware-cpuid-freq=on,+invtsc,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,-hle,-rtm,-vmx,-pdpe1gb,check"
+    # Each feature, one per line, tagged:
+    #   [macOS]      Required for macOS to boot or function correctly.
+    #   [stability]  Strip a feature that trips xnu pmap under KVM.
+    #
+    # Joined into one comma-separated string for QEMU's -cpu argument.
+    CPU_FEATURES=(
+        # CPUID identity / hypervisor signature
+        vendor=GenuineIntel    # [macOS] xnu rejects AuthenticAMD; panic before kext init.
+        kvm=on                 # [macOS] advertise KVM in CPUID 0x40000000+; xnu takes
+                               #         faster paths under recognized hypervisors.
+        vmware-cpuid-freq=on   # [macOS] expose TSC + bus freq via CPUID 0x40000010,
+                               #         lets macOS skip an expensive calibration loop.
+
+        # ISA features macOS x86_64 ABI assumes are present
+        +invtsc                # [macOS] invariant TSC — mach_absolute_time drifts without.
+        +ssse3                 # [macOS] Snow Leopard+ baseline.
+        +sse4.2                # [macOS] Mountain Lion+ baseline.
+        +popcnt                # [macOS] used by xnu's compressor.
+        +avx                   # [macOS] Mavericks+ baseline.
+        +aes                   # [macOS] FileVault + APFS/HFS encryption.
+        +xsave                 # [macOS] context save/restore (mcontext).
+        +xsaveopt              # [macOS] optimized XSAVE — faster ctx switch.
+
+        # Negations — strip features that destabilize xnu under KVM.
+        -hle                   # [stability] TSX HLE bit. xnu vm_map_fork takes RTM
+        -rtm                   # [stability] TSX RTM bit. fast-paths that abort under
+                               #             KVM emulation, corrupting pmap free-lists.
+                               #             Caused "corrupt list around element"
+                               #             panics observed 2026-05-10.
+        -vmx                   # [stability] xnu doesn't run an inner hypervisor;
+                               #             CR4.VMXE leaking through changes pmap's
+                               #             TLB-invalidate sequence.
+        -pdpe1gb               # [stability] 1 GiB-page CPUID bit. xnu's
+                               #             pmap_query_page_info walks PTs assuming
+                               #             4K/2M leaves; PDPTE PS=1 GP-faults.
+
+        check                  # [project] refuse to start if any feature unavailable
+                               #           (typo guard — better to fail loudly than
+                               #           silently lose a feature).
+    )
+    # Join with commas. IFS=, in subshell so we don't pollute outer scope.
+    CPU_ARGS="${CPU_MODEL},$(IFS=,; echo "${CPU_FEATURES[*]}")"
 fi
 
 # --- COMMON_ARGS — grouped by scope ----------------------------------

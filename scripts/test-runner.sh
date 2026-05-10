@@ -70,12 +70,16 @@ phase_config() {
             ;;
         1|2)
             BOOT_MARKER='loginwindow \([0-9]+\)'
-            PHASE_SETTLE=200
+            # 200s wasn't enough — phase 2 captured at 89.75% diff because
+            # macOS was still rendering at the screendump moment. 300s
+            # gives the login chrome (cursor, Wi-Fi icon, clock) time to
+            # finish coming in across phase boot-time variance.
+            PHASE_SETTLE=300
             DIFF_THRESHOLD_PCT=2   # 2% gives ~3x headroom over max observed (0.65%)
             ;;
         3)
             BOOT_MARKER='loginwindow \([0-9]+\)'
-            PHASE_SETTLE=200
+            PHASE_SETTLE=300
             DIFF_THRESHOLD_PCT=2
             # Phase 3 = Apple HID by definition (apple-magic-keyboard +
             # apple-mighty-mouse). Drive deterministic input after boot

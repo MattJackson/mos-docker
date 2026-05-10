@@ -237,6 +237,29 @@ echo "    disk:        $DISK"
 echo "    serial log:  $SERIAL_LOG"
 echo "    QMP socket:  $QMP_SOCK"
 echo "    noVNC:       http://0.0.0.0:${NOVNC_PORT}/vnc.html?autoconnect=1"
+
+# --- NUMA pinning (xnu pmap stability on dual-socket hosts) ----------
+# Linux can schedule QEMU vCPUs across all sockets and back guest pages
+# from any NUMA node. xnu's pmap takes IPI-coordinated TLB shootdowns
+# during page-table walks (`pmap_remove_range`, `pmap_query_page_info`);
+# cross-socket atomics on PTEs widen the race windows enough to corrupt
+# linked-list pointers in vm_map_destroy and GP-fault during corpse
+# collection (observed BiomeAgent + ContinuityCaptureAgent panics on
+# 2026-05-10, 2× E5-2699 v3, 36C/72T NUMA-2 host).
+#
+# Default: pin to NUMA node 0. Override with MOS_NUMA_NODE=<n> or empty
+# string to disable. No-op on single-node hosts.
+NUMA_PIN=""
+if [ -n "${MOS_NUMA_NODE-0}" ]; then
+    if command -v numactl >/dev/null 2>&1; then
+        NUMA_PIN="numactl --cpunodebind=${MOS_NUMA_NODE:-0} --membind=${MOS_NUMA_NODE:-0}"
+        echo "    NUMA pin:    node ${MOS_NUMA_NODE:-0} (set MOS_NUMA_NODE= to disable)"
+    else
+        echo "    NUMA pin:    SKIPPED — numactl missing in image"
+    fi
+else
+    echo "    NUMA pin:    disabled (MOS_NUMA_NODE empty)"
+fi
 echo "================================================================"
 
 # Phase 4 is the M5 development stack — runs interactively without
@@ -253,7 +276,7 @@ echo "================================================================"
 # "screenshot: FAILED to capture" + verify-runner false-PASS that
 # caused 2026-05-09 regression-test paralysis).
 if [ "$PHASE" = "4" ] || [ "$PHASE" = "9" ] || [ "${EXTERNAL_SUPERVISOR:-0}" = "1" ]; then
-    exec "$QEMU_BIN" "${COMMON_ARGS[@]}"
+    exec $NUMA_PIN "$QEMU_BIN" "${COMMON_ARGS[@]}"
 fi
 
 # --- Phase 0-3 supervisor ---
@@ -290,7 +313,7 @@ case "$PHASE" in
 esac
 
 # Start QEMU in the background; cleanup() (above) tears it down on exit.
-"$QEMU_BIN" "${COMMON_ARGS[@]}" &
+$NUMA_PIN "$QEMU_BIN" "${COMMON_ARGS[@]}" &
 QEMU_PID=$!
 
 qmp_send() {

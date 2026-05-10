@@ -191,12 +191,30 @@ echo "    serial log:  $SERIAL_LOG"
 echo "    HMP socket:  $HMP_SOCK"
 echo "    QMP socket:  $QMP_SOCK"
 [ -n "$INSTALL_MEDIA" ] && echo "    install:     $MOS_QEMU_INSTALL_MEDIA"
+
+# --- NUMA pinning (xnu pmap stability on dual-socket hosts) ----------
+# See test.sh for the full rationale. xnu's pmap doesn't tolerate
+# cross-socket vCPU scheduling under load — observed BiomeAgent +
+# ContinuityCaptureAgent panics on 2026-05-10, 2× E5-2699 v3 host.
+# Default: pin to NUMA node 0. Override with MOS_NUMA_NODE=<n> or
+# empty string to disable. No-op on single-node hosts.
+NUMA_PIN=""
+if [ -n "${MOS_NUMA_NODE-0}" ]; then
+    if command -v numactl >/dev/null 2>&1; then
+        NUMA_PIN="numactl --cpunodebind=${MOS_NUMA_NODE:-0} --membind=${MOS_NUMA_NODE:-0}"
+        echo "    NUMA pin:    node ${MOS_NUMA_NODE:-0} (set MOS_NUMA_NODE= to disable)"
+    else
+        echo "    NUMA pin:    SKIPPED — numactl missing in image"
+    fi
+else
+    echo "    NUMA pin:    disabled (MOS_NUMA_NODE empty)"
+fi
 echo "================================================================"
 
 # Cleanup websockify on exit
 trap '[ -n "$NOVNC_BG" ] && kill $NOVNC_BG 2>/dev/null || true' EXIT
 
-exec qemu-system-x86_64 \
+exec $NUMA_PIN qemu-system-x86_64 \
     -enable-kvm \
     -m "${RAM_GB}G" \
     $MEM_BACKEND_ARGS \

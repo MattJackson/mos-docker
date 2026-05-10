@@ -175,11 +175,13 @@ FROM alpine:3.21
 # Runtime deps: glib/pixman for QEMU, OVMF firmware, websockify+novnc for
 # bundled VNC HTTP (install + test modes), vulkan-loader+lavapipe for
 # libapplegfx-vulkan, socat for QMP/HMP debugging from host, iproute2 for
-# macvtap (when HOST_IFACE set), coreutils for numfmt.
+# macvtap (when HOST_IFACE set), coreutils for numfmt, numactl for NUMA
+# pinning on dual-socket hosts (xnu pmap panics under cross-socket vCPU
+# scheduling — see MOS_NUMA_NODE in run.sh / test.sh).
 RUN apk add --no-cache \
     glib pixman libcap-ng libseccomp libslirp \
     libaio libbz2 dtc bash iproute2 ovmf \
-    socat coreutils \
+    socat coreutils numactl \
     websockify novnc \
     vulkan-loader mesa-vulkan-swrast \
     chromium xvfb py3-pillow

@@ -38,5 +38,9 @@ services:
       # which combined with the 300s BOOT_TIMEOUT pushed phase 1/2/3 verifies
       # to flake-rate; 16/16 boots in the calibrated 138-153s window.
       - RAM=${RAM:-16}
+      # SMP/CORES/THREADS must satisfy SMP = sockets * cores * threads.
+      # iMac20,1 = 8C/16T → cores=8, threads=2, sockets=1, total=16 vCPUs.
+      # Bumping SMP requires bumping CORES (or THREADS) in lockstep.
       - SMP=${SMP:-16}
-      - CORES=${CORES:-16}
+      - CORES=${CORES:-8}
+      - THREADS=${THREADS:-2}

@@ -107,15 +107,62 @@ ssh docker 'git -C /home/matthew/mos-docker pull --ff-only && cd /home/matthew/m
 git -C ~/Developer/qemu-mos15 add ... && git -C ~/Developer/qemu-mos15 commit -m "..." && git -C ~/Developer/qemu-mos15 push
 
 # 3. GitHub Actions automatically builds + pushes new mos-qemu-patched:<sha>
-#    Watch progress:
-gh run watch --repo MattJackson/mos-qemu
+#    Watch progress (run id from `gh run list --workflow=build-image.yml --limit 1 -R MattJackson/mos-qemu`):
+gh run watch <id> --repo MattJackson/mos-qemu --exit-status
 
-# 4. Once green (~5 min in CI), rebuild mos-docker on classe — picks up new :main tag
-ssh docker 'cd /home/matthew/mos-docker && sudo ./mos build'
+# 4. Once green (~1-2 min warm Layer C; ~11-13 min cold), rebuild on classe — picks up new :main tag
+ssh docker 'cd /home/matthew/mos-docker && ./mos build && ./mos test 4'
 ```
 
-CI build is ~5 min from push to GHCR-published. After that, `./mos build`
-on classe is ~50s.
+Layer C is an incremental re-link, not a full QEMU recompile —
+stage1 has the vanilla QEMU build + build system + a lagfx stub
+cached, so a `hw/**` change only re-runs `meson compile` against
+the delta. **Best observed warm: 1m19s (`8df84fb`).** The
+pre-2026-05-11 monolithic 17-min QEMU rebuild is gone.
+
+`./mos build` is ~50s. `./mos test 4` launches the container — `./mos
+build` alone does NOT restart anything, you must follow with `./mos
+test N`.
+
+### Editing libapplegfx-vulkan only (M5 lane's most common iteration)
+
+**Gotcha:** `libapplegfx-vulkan`'s own CI is tests-only. It does NOT
+push to GHCR. A push to libapplegfx-vulkan does NOT auto-trigger
+`mos-qemu-patched:main` to rebuild. If you only `./mos build` after
+a lagfx push, classe pulls the *old* `:main` and runs against
+yesterday's lagfx.
+
+The correct flow:
+
+```bash
+# 1. Push lagfx
+git -C ~/Developer/libapplegfx-vulkan add <files> \
+  && git -C ~/Developer/libapplegfx-vulkan commit -m "..." \
+  && git -C ~/Developer/libapplegfx-vulkan push
+
+# 2. (Recommended) wait for lagfx CI green — proves it compiles+tests pass
+gh run watch --repo MattJackson/libapplegfx-vulkan --exit-status
+
+# 3. Manually trigger the GHCR rebuild — resolves libapplegfx-vulkan:main to current HEAD
+gh workflow run build-image.yml -R MattJackson/mos-qemu
+
+# 4. Watch (~1-2 min warm Layer C)
+gh run list --workflow=build-image.yml --limit 1 -R MattJackson/mos-qemu
+gh run watch <id> -R MattJackson/mos-qemu --exit-status
+
+# 5. Deploy on classe
+ssh docker 'cd /home/matthew/mos-docker && ./mos build && ./mos test 4'
+```
+
+**Do NOT use empty commits on qemu-mos15** as a "trigger". The
+workflow's `paths:` filter sees zero changed files and skips
+silently. `gh workflow run` is the canonical refresh-trigger when
+only lagfx changed.
+
+If you edited BOTH lagfx and qemu-mos15: push lagfx first (so its
+`:main` is current), then push qemu-mos15 — the patched workflow
+auto-fires on `hw/**` and resolves `libapplegfx-vulkan:main` HEAD
+automatically. No separate dispatch needed.
 
 ### Bumping QEMU version
 

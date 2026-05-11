@@ -186,7 +186,7 @@ run_phase() {
         --device /dev/kvm:/dev/kvm \
         --cap-add NET_ADMIN \
         --memory 24g --cpus 32 \
-        -e RAM=16 -e SMP=16 -e CORES=16 \
+        -e RAM=16 -e SMP=16 -e CORES=8 \
         -e EXTERNAL_SUPERVISOR=1 \
         -v "$DATA_DIR":/data \
         -v "$BASELINES_DIR":/baselines \

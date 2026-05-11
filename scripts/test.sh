@@ -215,6 +215,14 @@ QEMU_ARGS+=(
     -D /data/logs/qemu-debug.log
 )
 
+# [debug] Phase 4 — also output serial to stdout for live debugging.
+# This makes macOS kernel console visible in `docker logs` alongside
+# lagfx traces from libapplegfx-vulkan. Critical for diagnosing why
+# apple-gfx-pci hangs after CmdDefineChildFIFO setup.
+if [ "$PHASE" = "4" ]; then
+    QEMU_ARGS+=( -serial stdio )
+fi
+
 # [project] I/O — serial log + HMP/QMP sockets + VNC. Test phases use
 # the simpler `file:` chardev style for serial (one log per phase boot).
 mos_hw_io_args "$SERIAL_LOG" "$HMP_SOCK" "$QMP_SOCK" "$VNC_DISPLAY" "file"

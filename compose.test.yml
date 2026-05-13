@@ -44,3 +44,8 @@ services:
       - SMP=${SMP:-16}
       - CORES=${CORES:-8}
       - THREADS=${THREADS:-2}
+      # Default phase-4 dev runs to info-level libapplegfx logging so
+      # /tmp/lagfx.log shows the doorbell/dispatcher data flow without
+      # the per-MMIO TRACE flood. Override with LAGFX_LOG_LEVEL=trace
+      # (loud) or LAGFX_LOG_LEVEL=warn (silent except warnings/errors).
+      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-info}

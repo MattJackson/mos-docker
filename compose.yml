@@ -58,13 +58,16 @@ services:
     cpus: '${CPU_LIMIT:-32}'            # ceiling = guest -smp + iothread/qmp headroom (matches compose.test.yml)
     volumes:
       - ./data:/data
+      # Mount /tmp to persist lagfx.log across container restarts
+      # Logs are written here by device.c and captured via docker logs
+      - ./data/logs:/tmp
     environment:
       - HOST_IFACE=${HOST_IFACE:-}      # empty = user-mode networking; set for macvtap
       - RAM=${RAM:-16}
       - SMP=${SMP:-16}
       - CORES=${CORES:-8}
       - GPU_CORES=${GPU_CORES:-8}
-      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-warn}
+      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-trace}  # debug by default for M5 troubleshooting
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}
       # - MOS_USE_APPLE_GFX_PCI=1    # disabled - memfd_alloc(0) bug
       # MOS_PERSIST: 1 = writes hit disk.img (default behavior for production

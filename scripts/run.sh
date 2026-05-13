@@ -141,6 +141,12 @@ echo "================================================================"
 # Cleanup websockify on exit
 trap '[ -n "$NOVNC_BG" ] && kill $NOVNC_BG 2>/dev/null || true' EXIT
 
+# Enable libapplegfx logging — trace level for debugging, info for production.
+# Set via LAGFX_LOG_LEVEL=trace|info|warn (default: warn). Override with:
+#   export LAGFX_LOG_LEVEL=trace && ./mos run
+export LAGFX_LOG_LEVEL="${LAGFX_LOG_LEVEL:-trace}"
+echo "INFO: libapplegfx logging enabled at level: $LAGFX_LOG_LEVEL"
+
 # shellcheck disable=SC2086  # NUMA_PIN is intentionally word-split.
 exec $NUMA_PIN qemu-system-x86_64 \
     "${QEMU_ARGS[@]}" \

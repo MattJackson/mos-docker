@@ -147,6 +147,21 @@ trap '[ -n "$NOVNC_BG" ] && kill $NOVNC_BG 2>/dev/null || true' EXIT
 export LAGFX_LOG_LEVEL="${LAGFX_LOG_LEVEL:-trace}"
 echo "INFO: libapplegfx logging enabled at level: $LAGFX_LOG_LEVEL"
 
+# Stage 65d Option 3: triangle shader modules for compute handler 0x74.
+# Set via LAGFX_TRIANGLE_VERTEX_SPV and LAGFX_TRIANGLE_FRAGMENT_SPV env vars.
+# SPVs should be baked into the container (e.g., at /usr/share/lagfx/).
+export LAGFX_TRIANGLE_VERTEX_SPV="${LAGFX_TRIANGLE_VERTEX_SPV:-}"
+export LAGFX_TRIANGLE_FRAGMENT_SPV="${LAGFX_TRIANGLE_FRAGMENT_SPV:-}"
+if [ -n "$LAGFX_TRIANGLE_VERTEX_SPV" ] && [ -n "$LAGFX_TRIANGLE_FRAGMENT_SPV" ]; then
+    if [ -f "$LAGFX_TRIANGLE_VERTEX_SPV" ] && [ -f "$LAGFX_TRIANGLE_FRAGMENT_SPV" ]; then
+        echo "INFO: triangle shader modules: vertex=$LAGFX_TRIANGLE_VERTEX_SPV fragment=$LAGFX_TRIANGLE_FRAGMENT_SPV"
+    else
+        echo "WARN: LAGFX_TRIANGLE_*_SPV set but files not found — triangle modules will be NULL"
+    fi
+else
+    echo "INFO: LAGFX Triangle SPVs not configured (set env vars to enable)"
+fi
+
 # shellcheck disable=SC2086  # NUMA_PIN is intentionally word-split.
 exec $NUMA_PIN qemu-system-x86_64 \
     "${QEMU_ARGS[@]}" \

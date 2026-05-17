@@ -67,7 +67,9 @@ services:
       - SMP=${SMP:-16}
       - CORES=${CORES:-8}
       - GPU_CORES=${GPU_CORES:-8}
-      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-trace}  # debug by default for M5 troubleshooting
+      - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-trace}      # debug by default for M5 troubleshooting
+      - LAGFX_TRIANGLE_VERTEX_SPV=/data/triangle_vertex.spv
+      - LAGFX_TRIANGLE_FRAGMENT_SPV=/data/triangle_fragment.spv
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}
       - LAGFX_TRIANGLE_VERTEX_SPV=${LAGFX_TRIANGLE_VERTEX_SPV:-/usr/share/lagfx/triangle_vertex.spv}
       - LAGFX_TRIANGLE_FRAGMENT_SPV=${LAGFX_TRIANGLE_FRAGMENT_SPV:-/usr/share/lagfx/triangle_fragment.spv}

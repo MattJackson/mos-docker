@@ -55,3 +55,6 @@ services:
       # qemu-mos15@88c2222 (Dockerfile.patched LAYER B1).
       - LAGFX_TRIANGLE_VERTEX_SPV=${LAGFX_TRIANGLE_VERTEX_SPV:-/usr/share/lagfx/triangle_vertex.spv}
       - LAGFX_TRIANGLE_FRAGMENT_SPV=${LAGFX_TRIANGLE_FRAGMENT_SPV:-/usr/share/lagfx/triangle_fragment.spv}
+      # Vulkan validation layers — opt-in for Stage 80 debugging (perf cost).
+      # Set LAGFX_VK_VALIDATION=1 to capture VUIDs during boot.
+      - LAGFX_VK_VALIDATION=${LAGFX_VK_VALIDATION:-""}

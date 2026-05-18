@@ -68,9 +68,14 @@ services:
       - CORES=${CORES:-8}
       - GPU_CORES=${GPU_CORES:-8}
       - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-trace}      # debug by default for M5 troubleshooting
-      - LAGFX_TRIANGLE_VERTEX_SPV=/data/triangle_vertex.spv
-      - LAGFX_TRIANGLE_FRAGMENT_SPV=/data/triangle_fragment.spv
       - MOS_QEMU_BUNDLED_NOVNC=${MOS_QEMU_BUNDLED_NOVNC:-1}
+      # Stage 65d Option 3 — triangle SPVs are baked into mos-qemu-patched at
+      # /usr/share/lagfx/triangle_*.spv (qemu-mos15 Dockerfile.patched LAYER B1).
+      # Override at run time with the env vars below if testing a different
+      # bundle. Earlier versions of this file also set hardcoded
+      # `LAGFX_TRIANGLE_*_SPV=/data/...` lines above these — compose's
+      # "last-key-wins" hid the bug for ~5h on 2026-05-17 (no /data/triangle_*
+      # files ever existed). Single source of truth is now the env-fallback.
       - LAGFX_TRIANGLE_VERTEX_SPV=${LAGFX_TRIANGLE_VERTEX_SPV:-/usr/share/lagfx/triangle_vertex.spv}
       - LAGFX_TRIANGLE_FRAGMENT_SPV=${LAGFX_TRIANGLE_FRAGMENT_SPV:-/usr/share/lagfx/triangle_fragment.spv}
       # - MOS_USE_APPLE_GFX_PCI=1    # disabled - memfd_alloc(0) bug

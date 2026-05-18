@@ -49,3 +49,9 @@ services:
       # the per-MMIO TRACE flood. Override with LAGFX_LOG_LEVEL=trace
       # (loud) or LAGFX_LOG_LEVEL=warn (silent except warnings/errors).
       - LAGFX_LOG_LEVEL=${LAGFX_LOG_LEVEL:-info}
+      # Stage 65d Option 3 — substitute triangle SPVs for every shader reference
+      # so a non-black pixel can land before real metallib capture (deferred,
+      # rides off-FIFO Mach IPC). Files are baked into mos-qemu-patched by
+      # qemu-mos15@88c2222 (Dockerfile.patched LAYER B1).
+      - LAGFX_TRIANGLE_VERTEX_SPV=${LAGFX_TRIANGLE_VERTEX_SPV:-/usr/share/lagfx/triangle_vertex.spv}
+      - LAGFX_TRIANGLE_FRAGMENT_SPV=${LAGFX_TRIANGLE_FRAGMENT_SPV:-/usr/share/lagfx/triangle_fragment.spv}

@@ -84,6 +84,19 @@ case "$cmd" in
     run)
         exec docker compose up -d "$@"
         ;;
+    verify)
+        # ./mos verify 80 — Stage 80 regression harness (login wallpaper / progress UI)
+        stage="${1:-}"
+        case "$stage" in
+            80)
+                exec ./scripts/verify-stage80.sh "$@"
+                ;;
+            *)
+                echo "usage: $0 verify <stage>  (stage: 80)" >&2
+                exit 2
+                ;;
+        esac
+        ;;
     test)
         # ./mos test <phase|all>
         #   N=0..3: regression check — code-driven serial boot marker +
@@ -176,13 +189,16 @@ Common workflow:
   ./mos stop               stop macOS
 
 Regression testing:
-  ./mos test 0             sanity (UEFI shell, no macOS)        — gold-diff regression
-  ./mos test 1             OEM + bare-min stack (login screen)  — gold-diff regression  [TRANSIENT]
-  ./mos test 2             patched + bare-min (binary swap)     — gold-diff regression
-  ./mos test 3             + apple-magic-keyboard / apple-mighty-mouse (Apple HID) — gold-diff regression
-  ./mos test 4             apple-gfx-pci paravirt (M5 dev stack) — INTERACTIVE, no auto pass/fail
-                                                                   (Stage 20% gate; no gold yet)
-  ./mos test all           run phases 0..3 in sequence; exit code = number of failures
+   ./mos test 0             sanity (UEFI shell, no macOS)        — gold-diff regression
+   ./mos test 1             OEM + bare-min stack (login screen)  — gold-diff regression  [TRANSIENT]
+   ./mos test 2             patched + bare-min (binary swap)     — gold-diff regression
+   ./mos test 3             + apple-magic-keyboard / apple-mighty-mouse (Apple HID) — gold-diff regression
+   ./mos test 4             apple-gfx-pci paravirt (M5 dev stack) — INTERACTIVE, no auto pass/fail
+                                                                    (Stage 20% gate; no gold yet)
+   ./mos test all           run phases 0..3 in sequence; exit code = number of failures
+
+Stage regression:
+   ./mos verify 80          Stage 80 — login wallpaper / progress UI stable boot
 
 For phases 0..3, "test" = launch container + watch serial for the boot
 marker (loginwindow for 1..3, OVMF marker for 0) + take a screendump +

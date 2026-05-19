@@ -58,3 +58,8 @@ services:
       # Vulkan validation layers — opt-in for Stage 80 debugging (perf cost).
       # Set LAGFX_VK_VALIDATION=1 to capture VUIDs during boot.
       - LAGFX_VK_VALIDATION=${LAGFX_VK_VALIDATION:-""}
+      # Phase B step 4 (2026-05-18) — heap-slot bytes-fetch diagnostic.
+      # When set, op_0x74 reads heap[+reference*12] via shell.read_memory
+      # and logs the parsed slot fields. Hard cap of 20 dumps total.
+      # See memory/phase_a_scenario_a_2026_05_18.md + paravirt-re/library/phase_b_*.
+      - LAGFX_PHASE_B_DUMP=${LAGFX_PHASE_B_DUMP:-""}

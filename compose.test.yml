@@ -65,3 +65,8 @@ services:
       - LAGFX_PHASE_B_DUMP=${LAGFX_PHASE_B_DUMP:-""}
       - LAGFX_PHASE_B_SWEEP=${LAGFX_PHASE_B_SWEEP:-""}
       - LAGFX_PHASE_B_LOOKUP=${LAGFX_PHASE_B_LOOKUP:-""}
+      # Phase C step 1 (2026-05-19) — metallib bytes capture to disk.
+      # When set, op_0x74 captures vertex+fragment metallibs via shell.read_memory
+      # and writes them to /tmp/lagfx-metallibs/ with size in filename.
+      # Hard cap of 20 total unique captures (vert + frag combined).
+      - LAGFX_PHASE_C_CAPTURE=${LAGFX_PHASE_C_CAPTURE:-""}

@@ -64,3 +64,4 @@ services:
       # See memory/phase_a_scenario_a_2026_05_18.md + paravirt-re/library/phase_b_*.
       - LAGFX_PHASE_B_DUMP=${LAGFX_PHASE_B_DUMP:-""}
       - LAGFX_PHASE_B_SWEEP=${LAGFX_PHASE_B_SWEEP:-""}
+      - LAGFX_PHASE_B_LOOKUP=${LAGFX_PHASE_B_LOOKUP:-""}

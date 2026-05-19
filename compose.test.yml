@@ -63,3 +63,4 @@ services:
       # and logs the parsed slot fields. Hard cap of 20 dumps total.
       # See memory/phase_a_scenario_a_2026_05_18.md + paravirt-re/library/phase_b_*.
       - LAGFX_PHASE_B_DUMP=${LAGFX_PHASE_B_DUMP:-""}
+      - LAGFX_PHASE_B_SWEEP=${LAGFX_PHASE_B_SWEEP:-""}

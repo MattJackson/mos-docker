@@ -78,6 +78,15 @@ services:
       # files ever existed). Single source of truth is now the env-fallback.
       - LAGFX_TRIANGLE_VERTEX_SPV=${LAGFX_TRIANGLE_VERTEX_SPV:-/usr/share/lagfx/triangle_vertex.spv}
       - LAGFX_TRIANGLE_FRAGMENT_SPV=${LAGFX_TRIANGLE_FRAGMENT_SPV:-/usr/share/lagfx/triangle_fragment.spv}
+      # Phase 6a: opt-in to the per-function AIR -> SPIR-V translator
+      # in op_0x74. With this unset the kext continues to receive the
+      # bundled substitute triangle shaders (Stage 75 safety net). Set
+      # to 1 to route real metallib bytes through translate_module and
+      # hand the resulting SPIR-V to vkCreateShaderModule. On any
+      # translation failure for a given pipeline ref, the substitute
+      # is used for that ref. See memory/escalations_to_senior.md
+      # ENTRY-007 for the descriptor-decoder caveats (Phase 6b).
+      - LAGFX_PHASE6_TRANSLATE=${LAGFX_PHASE6_TRANSLATE:-0}
       # - MOS_USE_APPLE_GFX_PCI=1    # disabled - memfd_alloc(0) bug
       # MOS_PERSIST: 1 = writes hit disk.img (default behavior for production
       # users who want their state to survive). 0 = snapshot=on, ephemeral

@@ -70,3 +70,11 @@ services:
       # and writes them to /tmp/lagfx-metallibs/ with size in filename.
       # Hard cap of 20 total unique captures (vert + frag combined).
       - LAGFX_PHASE_C_CAPTURE=${LAGFX_PHASE_C_CAPTURE:-""}
+      # Phase 6a (2026-05-27) — wire op_0x74 to translate AIR -> SPIR-V
+      # and hand the result to vkCreateShaderModule. With this unset,
+      # op_0x74 falls back to the Option 3 substitute triangle SPVs.
+      # Set to 1 to route real shaders through the translator. On any
+      # translation failure for a given pipeline ref, the substitute
+      # is used for that ref. See ENTRY-007 for descriptor-decoder
+      # caveats (Phase 6b).
+      - LAGFX_PHASE6_TRANSLATE=${LAGFX_PHASE6_TRANSLATE:-""}

@@ -78,3 +78,10 @@ services:
       # is used for that ref. See ENTRY-007 for descriptor-decoder
       # caveats (Phase 6b).
       - LAGFX_PHASE6_TRANSLATE=${LAGFX_PHASE6_TRANSLATE:-""}
+      # Phase 6b reconnaissance (2026-05-28) — env-gated hex-dump of
+      # CmdSetObjectList (0x24) + CmdSetObjectAndPlacementList (0x25)
+      # payload bytes to lagfx.log for offline wire-format RE. Hard
+      # cap of 8 captures total. See paravirt-re/library/apv-object-
+      # entry-parser-scoping-2026-05-17.md (the wire path Phase 6b
+      # decodes).
+      - LAGFX_PHASE_B2_CAPTURE=${LAGFX_PHASE_B2_CAPTURE:-""}

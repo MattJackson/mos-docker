@@ -87,6 +87,10 @@ services:
       # is used for that ref. See memory/escalations_to_senior.md
       # ENTRY-007 for the descriptor-decoder caveats (Phase 6b).
       - LAGFX_PHASE6_TRANSLATE=${LAGFX_PHASE6_TRANSLATE:-0}
+      # Phase 6b reconnaissance — hex-dump 0x24/0x25 payloads to
+      # lagfx.log (8-capture cap). See paravirt-re/library/apv-object-
+      # entry-parser-scoping-2026-05-17.md.
+      - LAGFX_PHASE_B2_CAPTURE=${LAGFX_PHASE_B2_CAPTURE:-0}
       # - MOS_USE_APPLE_GFX_PCI=1    # disabled - memfd_alloc(0) bug
       # MOS_PERSIST: 1 = writes hit disk.img (default behavior for production
       # users who want their state to survive). 0 = snapshot=on, ephemeral

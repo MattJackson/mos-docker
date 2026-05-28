@@ -8,7 +8,7 @@ macOS VM in Docker on Linux + KVM. Production runtime for the
 - `README.md` — 2-command quickstart for end users
 - `SETUP.md` — full first-time setup guide (recovery image acquisition,
   OpenCore.img build, install workflow)
-- `memory/MEMORY.md` — index of evergreen project facts and standing rules
+- Persistent memory: Hindsight (bank `mos-docker`); recall is automatic
 - `docs/incidents/` — public post-mortems (read these before changing
   anything destructive)
 
@@ -102,8 +102,8 @@ Local-dev hosts where you ARE in the docker group can drop the `sudo`.)
 - **Classe checkout:** `/home/matthew/mos-docker/`.
 - **Persistent state on classe:** `/home/matthew/mos-docker/data/`,
   containing the disk image (currently a symlink farm to `/data/macos/`).
-- **Memory:** `memory/` in this repo, in git. Cross-references at
-  `~/Developer/mos/memory/MEMORY.md`.
+- **Memory:** Hindsight (bank `mos-docker`); cross-bank refs via
+  Hindsight recall.
 
 ## Regression testing (developer / contributor)
 

@@ -114,7 +114,7 @@ These are direct lessons from [an incident](docs/incidents/2026-05-06-disk-wipe.
 
 ## License
 
-AGPL-3.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ## Related projects
 

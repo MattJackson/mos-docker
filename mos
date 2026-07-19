@@ -91,8 +91,14 @@ case "$cmd" in
             80)
                 exec ./scripts/verify-stage80.sh "$@"
                 ;;
+            lockscreen)
+                # phase-4 lock-screen gold gate (objective oracle-compare).
+                # Scaffolded / gate-off by default; GATE_ON=1 to arm.
+                shift
+                exec ./scripts/verify-lockscreen.sh "$@"
+                ;;
             *)
-                echo "usage: $0 verify <stage>  (stage: 80)" >&2
+                echo "usage: $0 verify <stage>  (stage: 80 | lockscreen)" >&2
                 exit 2
                 ;;
         esac

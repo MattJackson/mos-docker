@@ -3,8 +3,9 @@
 Curated documentation for [mos-docker](https://github.com/MattJackson/mos-docker)
 specifically — this is the *runtime* repo's local docs. For
 **project-wide vision, architecture, and whitepapers**, see
-[**mos-docs**](https://github.com/MattJackson/mos-docs) — that's the
-canonical project library covering all 5 sibling repos.
+**mos-docs** — the canonical
+project library covering all sibling repos (public publication in
+progress).
 
 This local library covers what's specific to running mos-docker:
 operational topics, the regression test infrastructure, and the

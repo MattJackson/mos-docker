@@ -23,15 +23,15 @@ That's it. macOS persists in `./data/disk.img` between runs.
 
 - macOS Sequoia VM with KVM acceleration (≥30 fps @ 1080p on modern hardware)
 - Default display: `-vga std` — works through OpenCore + recovery + post-install kernel
-- Optional Apple paravirtualized GPU (`apple-gfx-pci` device, lavapipe Vulkan backend) for testing the M5 path — disabled by default until libapplegfx-vulkan opcode handlers ship; opt in with `MOS_USE_APPLE_GFX_PCI=1`. See *Project status*.
+- Optional Apple paravirtualized GPU (`apple-gfx-pci` device, lavapipe Vulkan backend) — the full render chain is proven live (real guest geometry with translated shaders); consolidation to default-on is in progress. Opt in with `MOS_USE_APPLE_GFX_PCI=1`. See *Project status*.
 - noVNC web client at `http://localhost:6080/vnc.html?autoconnect=1`
 - Persistent `disk.img` survives container removal
 
 ## Project status
 
-This is the runtime side of [mos](https://github.com/MattJackson/mos), an open-source effort to bring up Apple's `ParavirtualizedGraphics` framework against a host-side Vulkan/lavapipe backend running under QEMU/KVM. The plumbing (QEMU patches, kexts, OpenCore wiring) is solid and stable; the host-side opcode handlers in `libapplegfx-vulkan` are partially implemented (M5 milestone). Without those, the apple-gfx-pci device doesn't render — you'll see a blank screen at boot when using the production stack.
+This is the runtime side of **mos**, an open-source (MIT) effort to bring up Apple's `ParavirtualizedGraphics` framework against a host-side Vulkan/lavapipe backend running under QEMU/KVM. The plumbing (QEMU patches, OpenCore wiring) is solid and stable, and the paravirt render chain is proven live: the guest's real geometry, with vertex + fragment shaders translated by the clean-room AIR → SPIR-V pipeline, renders through lavapipe at ~99.7% frame coverage. Consolidating that winning render path to default-on is the current work; until it lands, `-vga std` remains the default display.
 
-For the milestones-met state today (a working paravirt GPU stack short of pixels), use the regression test phases — see *Regression testing* below.
+To exercise the paravirt GPU stack, use the regression test phases — see *Regression testing* below.
 
 ## Quick reference
 
@@ -118,9 +118,8 @@ MIT. See [LICENSE](LICENSE).
 
 ## Related projects
 
-- **[mos-docs](https://github.com/MattJackson/mos-docs)** — project-wide documentation library: vision, architecture, whitepapers, reference. Read this if you want the *why*; this README is the *how*.
-- [mos](https://github.com/MattJackson/mos) — RE notes (`paravirt-re/`), kext sources, milestones, project memory
-- [mos-qemu](https://github.com/MattJackson/mos-qemu) — QEMU 11.0.0 fork with `apple-gfx-pci` + `applesmc` + `dev-hid` patches
+- **mos-docs** — project-wide documentation library: vision, architecture, whitepapers, reference (public publication in progress). Read this if you want the *why*; this README is the *how*.
+- [mos-qemu](https://github.com/MattJackson/mos-qemu) — QEMU fork with `apple-gfx-pci` + `applesmc` + `dev-hid` patches
 - [libapplegfx-vulkan](https://github.com/MattJackson/libapplegfx-vulkan) — host-side paravirt GPU library (Vulkan/lavapipe backend)
 - [mos-patcher](https://github.com/MattJackson/mos-patcher) — Lilu plugin (per-instance vtable swap on Sequoia)
 - [mos-opencore](https://github.com/MattJackson/mos-opencore) — OpenCore EFI image build script
